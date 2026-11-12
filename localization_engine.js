@@ -5663,16 +5663,204 @@ function getDynamicProductUiTranslation(value) {
         } catch (e) {}
     }
 
+    const UX_LAYOUT_STORAGE_KEY = "ag_ux_compact_wide";
+    const UX_LAYOUT_STYLE_ID = "ag-ux-compact-wide-style";
+
+    function isCompactWideEnabled() {
+        try {
+            const saved = window.localStorage.getItem(UX_LAYOUT_STORAGE_KEY);
+            return saved === null ? true : saved === "on";
+        } catch (e) {
+            return true;
+        }
+    }
+
+    function applyCompactWideAttribute(enabled) {
+        const root = document.documentElement;
+        if (!root) return;
+        root.setAttribute("data-ag-ux-layout", enabled ? "on" : "off");
+    }
+
+    function ensureCompactWideStyle() {
+        if (document.getElementById(UX_LAYOUT_STYLE_ID)) return;
+        const host = document.head || document.documentElement;
+        if (!host) return;
+        const styleEl = document.createElement("style");
+        styleEl.id = UX_LAYOUT_STYLE_ID;
+        styleEl.textContent = [
+            'html[data-ag-ux-layout="on"], html[data-ag-ux-layout="on"] body {',
+            '  overscroll-behavior: none;',
+            '}',
+            'html[data-ag-ux-layout="on"] {',
+            '  --max-conversation-width: 94% !important;',
+            '  --max-artifact-width: 94% !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="user-input-step"] [class*="max-w-[80%]"] {',
+            '  max-width: 88% !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="autoscroll-viewport"] div:has(> h1.sr-only) {',
+            '  row-gap: 0.25rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="user-input-step"] {',
+            '  padding-top: 0.5rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [role="article"][aria-label="User message"],',
+            'html[data-ag-ux-layout="on"] [role="article"][aria-label="用户消息"] {',
+            '  margin-bottom: 0.375rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] .md-sticky-message-bleed::after {',
+            '  height: 0.875rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-turn-content] > div.pt-3 {',
+            '  padding-top: 0.25rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="turn-cards-container"] {',
+            '  padding-top: 0.125rem !important;',
+            '  padding-bottom: 0.125rem !important;',
+            '  gap: 0.25rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] {',
+            '  padding-top: 0.125rem !important;',
+            '  padding-bottom: 0.125rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] :is(p, ul, ol, pre, blockquote) {',
+            '  margin-top: 0.375rem !important;',
+            '  margin-bottom: 0.375rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] > :first-child,',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] > div > :first-child {',
+            '  margin-top: 0 !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] > :last-child,',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] > div > :last-child {',
+            '  margin-bottom: 0 !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] li + li {',
+            '  margin-top: 0.15rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-testid="planner-response-text"] hr {',
+            '  margin-top: 0.625rem !important;',
+            '  margin-bottom: 0.625rem !important;',
+            '}',
+            'html[data-ag-ux-layout="on"] [data-media-drop-scope] > div.pb-8 {',
+            '  padding-bottom: 0.875rem !important;',
+            '}'
+        ].join("\\n");
+        host.appendChild(styleEl);
+    }
+
+    function syncCompactWideSwitchButton(btn, thumb, enabled) {
+        btn.setAttribute("aria-checked", enabled ? "true" : "false");
+        btn.className = "relative inline-flex items-center rounded-full transition-colors duration-200 ease-in-out shrink-0 h-6 w-11 cursor-pointer " + (enabled ? "bg-primary" : "bg-secondary");
+        thumb.style.transform = enabled ? "translateX(24px)" : "translateX(4px)";
+    }
+
+    let uxSettingsRafPending = false;
+    function scheduleMountCompactWideSetting() {
+        if (uxSettingsRafPending) return;
+        uxSettingsRafPending = true;
+        window.requestAnimationFrame(() => {
+            uxSettingsRafPending = false;
+            try {
+                mountCompactWideSettingRow();
+            } catch (e) {}
+        });
+    }
+
+    function mountCompactWideSettingRow() {
+        const headings = document.querySelectorAll("h3");
+        if (!headings.length) return;
+        for (let i = 0; i < headings.length; i++) {
+            const h3 = headings[i];
+            if (h3.childElementCount > 0) continue;
+            const title = (h3.textContent || "").trim();
+            if (title !== "聊天宽度" && title !== "Chat Width") continue;
+            const sectionRoot = h3.closest(".space-y-2") || (h3.parentElement && h3.parentElement.parentElement && h3.parentElement.parentElement.parentElement);
+            if (!sectionRoot) continue;
+            const card = sectionRoot.querySelector(".agy-card");
+            if (!card || card.querySelector('[data-ag-ux-compact-row="true"]')) continue;
+
+            const row = document.createElement("div");
+            row.setAttribute("data-ag-ux-compact-row", "true");
+            row.setAttribute("data-ag-localization-skip", "true");
+            row.className = "py-2 px-3 w-full bg-transparent flex justify-between gap-4 items-center";
+
+            const leftCol = document.createElement("div");
+            leftCol.className = "flex-1 flex flex-col gap-0.5";
+
+            const labelWrap = document.createElement("div");
+            labelWrap.className = "flex items-center gap-1.5";
+
+            const labelEl = document.createElement("span");
+            labelEl.className = "text-sm";
+            labelEl.id = "ag-ux-compact-wide-label";
+            labelEl.textContent = "紧凑加宽布局";
+
+            const badgeEl = document.createElement("span");
+            badgeEl.className = "text-[10px] font-semibold leading-none bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded-full select-none border border-border";
+            badgeEl.textContent = "94%";
+
+            labelWrap.appendChild(labelEl);
+            labelWrap.appendChild(badgeEl);
+
+            const descEl = document.createElement("span");
+            descEl.className = "text-xs text-muted-foreground whitespace-pre-wrap";
+            descEl.textContent = "固定 94% 黄金对话宽度，并收紧消息与段落垂直间距（即时生效）。";
+
+            leftCol.appendChild(labelWrap);
+            leftCol.appendChild(descEl);
+
+            const rightCol = document.createElement("div");
+            rightCol.className = "shrink-0";
+
+            const switchBtn = document.createElement("button");
+            switchBtn.type = "button";
+            switchBtn.setAttribute("role", "switch");
+            switchBtn.setAttribute("aria-labelledby", "ag-ux-compact-wide-label");
+
+            const thumbEl = document.createElement("span");
+            thumbEl.className = "inline-block rounded-full bg-white transition-transform duration-200 ease-in-out shadow-sm h-4 w-4";
+            switchBtn.appendChild(thumbEl);
+
+            syncCompactWideSwitchButton(switchBtn, thumbEl, isCompactWideEnabled());
+
+            switchBtn.addEventListener("click", () => {
+                const next = !isCompactWideEnabled();
+                try {
+                    window.localStorage.setItem(UX_LAYOUT_STORAGE_KEY, next ? "on" : "off");
+                } catch (e) {}
+                applyCompactWideAttribute(next);
+                ensureCompactWideStyle();
+                syncCompactWideSwitchButton(switchBtn, thumbEl, next);
+            });
+
+            rightCol.appendChild(switchBtn);
+            row.appendChild(leftCol);
+            row.appendChild(rightCol);
+            card.appendChild(row);
+        }
+    }
+
+    applyCompactWideAttribute(isCompactWideEnabled());
+    ensureCompactWideStyle();
+
     const observer = new MutationObserver(mutations => {
         const visitedElements = new WeakSet();
+        let hasAddedElements = false;
         for (const m of mutations) {
             if (m.type === 'childList') {
-                for (const n of m.addedNodes) translateNode(n, false, visitedElements);
+                for (const n of m.addedNodes) {
+                    if (n.nodeType === 1) hasAddedElements = true;
+                    translateNode(n, false, visitedElements);
+                }
             } else if (m.type === 'characterData') {
                 translateNode(m.target, false, visitedElements);
             } else if (m.type === 'attributes') {
                 translateElementAttributes(m.target);
             }
+        }
+        if (hasAddedElements) {
+            scheduleMountCompactWideSetting();
         }
     });
 
@@ -5686,12 +5874,15 @@ function getDynamicProductUiTranslation(value) {
 
     let engineStarted = false;
     const startEngine = () => {
+        applyCompactWideAttribute(isCompactWideEnabled());
+        ensureCompactWideStyle();
         const target = document.body || document.documentElement;
         if (!target || engineStarted) return;
 
         engineStarted = true;
         try {
             translateNode(target);
+            scheduleMountCompactWideSetting();
             observer.observe(target, obsOpts);
         } catch (e) {}
     };
