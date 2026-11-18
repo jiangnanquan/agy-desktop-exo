@@ -141,7 +141,7 @@ function generateJs() {
     const skillContextCache = new WeakMap();
 
     const BLOCKED_CLASSES = ['monaco-editor', 'editor-container', 'terminal', 'output-view', 'debug-console', 'code-view', 'artifact-container', 'suggest-widget'];
-    const HARD_PRUNED_CLASS_REGEX = /(?:^|\\s)(?:view-lines|view-line|view-overlays|lines-content|margin|margin-view-overlays|minimap|decorationsOverviewRuler|cursors-layer|monaco-tokenized-source|xterm|terminal|output-view|debug-console|material-symbols(?:-[a-z]+)?|material-icons(?:-[a-z]+)?|codicon(?:-[a-z]+)?|google-symbols)(?:\\s|$)/;
+    const HARD_PRUNED_CLASS_REGEX = /(?:^|\\s)(?:view-lines|view-line|view-overlays|lines-content|margin|margin-view-overlays|minimap|decorationsOverviewRuler|cursors-layer|monaco-tokenized-source|code-block|code-line|line-content|line-number|xterm|terminal|output-view|debug-console|material-symbols(?:-[a-z]+)?|material-icons(?:-[a-z]+)?|codicon(?:-[a-z]+)?|google-symbols)(?:\\s|$)/;
     const BLOCKED_TAGS = ['SCRIPT', 'STYLE', 'CODE', 'PRE', 'INPUT', 'TEXTAREA', 'SVG', 'CANVAS', 'SYMBOL', 'PATH'];
     const BLOCKED_TAGS_SET = new Set(BLOCKED_TAGS);
     const AUTO_TRANSLATE_PROTECTED_TAGS = new Set(['CODE', 'PRE', 'INPUT', 'TEXTAREA']);
@@ -611,6 +611,9 @@ function generateJs() {
 
         match = normalized.match(/^(\\+)?\\s*(\\d+)\\s+more\\s+lines?$/i);
         if (match) return (match[1] ? match[1] : "") + match[2] + " 行代码";
+
+        match = normalized.match(/^(\\d+)\\s+hidden\\s+hosts?$/i);
+        if (match) return match[1] + " 个已隐藏主机";
         return null;
     }
 
@@ -980,7 +983,7 @@ function generateJs() {
 
         const testId = el.getAttribute('data-testid');
         const prevTestId = prev ? prev.getAttribute?.('data-testid') : null;
-        if (testId === 'file-title-name' || prevTestId === 'file-title-name' || prevTestId === 'file-tree-node-icon') {
+        if (testId === 'file-title-name' || testId === 'code-gutter' || prevTestId === 'file-title-name' || prevTestId === 'file-tree-node-icon' || el.hasAttribute('data-line-tokens')) {
             blockedZoneCache.set(el, -1);
             return 2;
         }
@@ -1216,9 +1219,65 @@ function generateJs() {
         return false;
     }
 
+    function translateSideQuestionOriginPrefix(text) {
+        if (text === "Started from") return "发起自";
+        if (text === "Started during") return "进行中发起自";
+        return null;
+    }
+
+    function translateSideQuestionOriginFallbackTarget(text) {
+        if (text === "the main conversation") return "主会话";
+        if (text === "the subagent conversation") return "子智能体会话";
+        return null;
+    }
+
+    function translateSideQuestionOriginAttr(value, el) {
+        if (!el || el.nodeType !== Node.ELEMENT_NODE || el.getAttribute?.("data-testid") !== "side-question-origin") {
+            return null;
+        }
+        const normalized = norm(value);
+        if (!normalized) return null;
+
+        let match = normalized.match(/^(Started from|Started during)\\s+([\\s\\S]+?)\\.\\s+Show in (main conversation|subagent conversation)$/);
+        if (match) {
+            const prefix = translateSideQuestionOriginPrefix(match[1]);
+            const origin = translateSideQuestionOriginFallbackTarget(match[2]) || match[2];
+            const scope = match[3] === "main conversation" ? "主会话" : "子智能体会话";
+            return prefix + " " + origin + ". 在" + scope + "中显示";
+        }
+
+        match = normalized.match(/^(Started from|Started during)\\s+([\\s\\S]+)$/);
+        if (match) {
+            const prefix = translateSideQuestionOriginPrefix(match[1]);
+            const origin = translateSideQuestionOriginFallbackTarget(match[2]) || match[2];
+            return prefix + " " + origin;
+        }
+        return null;
+    }
+
+    function getSideQuestionOriginTextNodeTranslation(node, valNorm) {
+        if (!node || !valNorm) return null;
+        const parentSpan = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        if (!parentSpan || parentSpan.tagName?.toUpperCase() !== "SPAN") return null;
+        const originBtn = parentSpan.parentElement;
+        if (!originBtn || originBtn.getAttribute?.("data-testid") !== "side-question-origin") return null;
+
+        const spanClass = typeof parentSpan.className === "string" ? parentSpan.className : "";
+        if (spanClass.includes("truncate")) {
+            return translateSideQuestionOriginFallbackTarget(valNorm);
+        }
+        const prefix = translateSideQuestionOriginPrefix(valNorm);
+        if (prefix) return prefix;
+        if (valNorm === "Show") return "显示";
+        return null;
+    }
+
     function getProtectedProductUiTranslation(node, value) {
         const normalized = norm(value);
         const lower = normalized.toLowerCase();
+
+        const sideOriginTrans = getSideQuestionOriginTextNodeTranslation(node, normalized);
+        if (sideOriginTrans) return sideOriginTrans;
 
         if (isMessageActionTimestamp(node)) {
             const relativeTime = getRelativeTimeTranslation(normalized, node);
@@ -1994,6 +2053,16 @@ function generateJs() {
             descriptions: [
                 "Discover UI plugin panels relevant to the current task and surface a one-click pill in chat to open (toggle) them in the side pane. Use when a running UI plugin's panel would help with what the user is doing, or right after the user enables a new UI plugin pane and a shortcut to open it is handy.",
                 "发现与当前任务相关的 UI 插件面板，并在聊天中提供一键胶囊按钮以便在侧边面板中打开（切换）它们。当运行中的 UI 插件面板对用户正在进行的操作有所帮助，或在用户启用新的 UI 插件面板且需要便捷快捷方式打开它时使用"
+            ]
+        },
+        {
+            source: 'mcp-app-development',
+            display: "MCP 应用开发",
+            descriptions: [
+                "Build, package, and debug MCP Apps for Antigravity: MCP server tools whose results render as interactive UI in the conversation, in the side pane, or full-page from the sidebar. Use when adding a UI to an MCP tool, building or theming the app itself, packaging it as a plugin, or debugging an app that doesn't render or behave as expected.",
+                "Build, package, and debug MCP Apps for Antigravity: MCP server tools whose results render as interactive UI in the conversation, in the side pane, or full-page from the sidebar.",
+                "为 Antigravity 构建、打包和调试 MCP 应用: 其结果可在对话中、侧边面板或从侧边栏以全页形式呈现为交互式界面的 MCP 服务器工具. 当向 MCP 工具添加界面、构建或设置应用主题、将其打包为插件，或调试无法按预期渲染或运行的应用时使用.",
+                "为 Antigravity 构建、打包和调试 MCP 应用：其结果可在对话中、侧边面板或从侧边栏以全页形式呈现为交互式界面的 MCP 服务器工具。当向 MCP 工具添加界面、构建或设置应用主题、将其打包为插件，或调试无法按预期渲染或运行的应用时使用"
             ]
         },
         {
@@ -2847,9 +2916,46 @@ function generateJs() {
         return match[1] + " " + translatedStatus;
     }
 
+function getModelUnavailableRetryTranslation(value) {
+        if (!value || typeof value !== 'string') return null;
+        const valNorm = norm(value);
+        if (!/^Model\\s+unavailable,\\s*retrying\\b/i.test(valNorm)) return null;
+        const m = valNorm.match(/^Model\\s+unavailable,\\s*retrying(?:\\s+in\\s+(\\d+)s)?(?:\\s*\\(attempt\\s+(\\d+)\\/(\\d+)\\))?$/i);
+        if (!m) return null;
+        let res = m[1] ? "模型不可用，将在 " + m[1] + " 秒后重试" : "模型不可用，正在重试";
+        if (m[2] && m[3]) {
+            res += " (第 " + m[2] + "/" + m[3] + " 次尝试)";
+        }
+        return res;
+    }
+
 function getDynamicProductUiTranslation(value, node = null) {
         const normalized = norm(value);
-        let match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
+        const sideOriginAttrTrans = translateSideQuestionOriginAttr(normalized, node);
+        if (sideOriginAttrTrans) return sideOriginAttrTrans;
+        const sideOriginTextTrans = getSideQuestionOriginTextNodeTranslation(node, normalized);
+        if (sideOriginTextTrans) return sideOriginTextTrans;
+        const retryTrans = getModelUnavailableRetryTranslation(normalized);
+        if (retryTrans) return retryTrans;
+
+        let match = normalized.match(/^(.+?)\\s+needs?\\s+the\\s+terminal\\s+sandbox,\\s*which\\s+isn't\\s+available\\s+on\\s+this\\s+host\\.$/i);
+        if (match && match[1].length <= 80) {
+            const modeMap = {
+                "request review": "请求审查",
+                "default": "默认",
+                "auto": "自动",
+                "turbo": "极速"
+            };
+            const parts = match[1].split(/\\s+and\\s+/i).map(p => modeMap[p.trim().toLowerCase()] || p.trim());
+            return parts.join(" 和 ") + " 需要终端沙箱，但此主机上不可用.";
+        }
+
+        match = normalized.match(/^Sign-ins\\s+to\\s+(.+?)\\s+are\\s+kept\\s+in\\s+the\\s+cloud\\s+with\\s+your\\s+account\\.$/i);
+        if (match && match[1].length <= 160) {
+            return "登录到 " + match[1] + " 的凭据将随您的账号保存在云端.";
+        }
+
+        match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
         if (match) return "嗨 " + match[1] + "，今天我们可以完成些什么？";
 
         match = normalized.match(/^Your\\s+Plan:\\s*(.+)$/i);
@@ -5182,7 +5288,7 @@ function getDynamicProductUiTranslation(value, node = null) {
 
     function translateSwarmBoardElementAttributes(el) {
         if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
-        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
             const v = el.getAttribute(attr);
             if (!v) continue;
             const target = getSwarmBoardUiTranslation(el, norm(v), v, true, attr);
@@ -5275,6 +5381,30 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return translateBaselineQuotaNotice(element);
             }
             return false;
+        }
+
+        if (element.getAttribute?.("data-testid") === "side-question-origin") {
+            for (const attr of ["title", "aria-label"]) {
+                const v = element.getAttribute(attr);
+                if (!v) continue;
+                const transAttr = translateSideQuestionOriginAttr(v, element);
+                if (transAttr && transAttr !== v) {
+                    element.setAttribute(attr, transAttr);
+                }
+            }
+            const spans = Array.from(element.children || []).filter(ch => ch.tagName?.toUpperCase() === "SPAN");
+            for (const span of spans) {
+                for (const child of Array.from(span.childNodes || [])) {
+                    if (child.nodeType !== Node.TEXT_NODE) continue;
+                    const textVal = norm(child.nodeValue || "");
+                    if (!textVal) continue;
+                    const trans = getSideQuestionOriginTextNodeTranslation(child, textVal);
+                    if (trans) {
+                        replaceTextNode(child, trans);
+                    }
+                }
+            }
+            return "skip_children";
         }
 
         const rawText = getBoundedTextContent(element, 36, 1600);
@@ -6038,7 +6168,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 const tag = node.tagName ? node.tagName.toUpperCase() : '';
                 if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
                     const parentState = getElementBlockedState(node.parentElement);
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                         const v = node.getAttribute(attr);
                         if (v) {
                             const searchingTrans = getSearchingStatusTranslation(v);
@@ -6061,7 +6191,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return;
             }
             if (node.getAttribute('contenteditable') === 'true') {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title']) {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title', 'data-tooltip']) {
                     const value = node.getAttribute(attr);
                     if (!value) continue;
                     const normalizedValue = norm(value);
@@ -6075,7 +6205,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return;
             }
             if (blockedState === 0 || node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button' || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                     const v = node.getAttribute(attr);
                     if (v) {
                         const searchingTrans = getSearchingStatusTranslation(v);
@@ -6095,7 +6225,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                     }
                 }
             } else {
-                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                     const v = node.getAttribute(attr);
                     if (v) {
                         const searchingTrans = getSearchingStatusTranslation(v);
@@ -6114,6 +6244,63 @@ function getDynamicProductUiTranslation(value, node = null) {
         } catch (e) {}
     }
 
+    function isPureThoughtSkipContext(el) {
+        let curr = el;
+        let sawThoughtSkip = false;
+        for (let depth = 0; curr && depth < 12; depth++) {
+            if (curr === document.body || curr === document.documentElement) break;
+            const tag = curr.tagName ? curr.tagName.toUpperCase() : '';
+            if (tag && BLOCKED_TAGS_SET.has(tag)) return false;
+            const cls = typeof curr.className === 'string' ? curr.className : '';
+            if (cls && HARD_PRUNED_CLASS_REGEX.test(cls)) return false;
+            if (curr.getAttribute?.('contenteditable') === 'true') return false;
+            const testId = curr.getAttribute?.('data-testid');
+            if (testId === 'user-input-step') return false;
+            if (curr.hasAttribute?.(SKIP_TRANSLATION_ATTR)) {
+                sawThoughtSkip = true;
+            }
+            const prev = curr.previousElementSibling;
+            if (prev && prev.hasAttribute?.('data-ag-thought-header') && curr.parentElement && curr.parentElement.children.length === 2) {
+                sawThoughtSkip = true;
+            }
+            curr = curr.parentElement;
+        }
+        return sawThoughtSkip;
+    }
+
+    function translateModelRetryInsideThought(el) {
+        if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+        const bounded = getBoundedTextContent(el, 8, 120);
+        if (bounded && /Model\\s+unavailable,\\s*retrying\\b/i.test(bounded)) {
+            const queue = [el];
+            for (let qi = 0; qi < queue.length && qi < 12; qi++) {
+                const item = queue[qi];
+                for (const child of item.childNodes) {
+                    if (child.nodeType === Node.TEXT_NODE) {
+                        const tv = child.nodeValue || '';
+                        const retryTrans = getModelUnavailableRetryTranslation(tv);
+                        if (retryTrans && retryTrans !== tv) {
+                            replaceTextNode(child, retryTrans);
+                            return true;
+                        }
+                    } else if (child.nodeType === Node.ELEMENT_NODE && !BLOCKED_TAGS_SET.has((child.tagName || '').toUpperCase())) {
+                        queue.push(child);
+                    }
+                }
+            }
+            return false;
+        }
+        let tail = el.lastElementChild;
+        for (let d = 0; tail && d < 4; d++) {
+            const tailText = getBoundedTextContent(tail, 6, 120);
+            if (tailText && /Model\\s+unavailable,\\s*retrying\\b/i.test(tailText)) {
+                return translateModelRetryInsideThought(tail);
+            }
+            tail = tail.lastElementChild;
+        }
+        return false;
+    }
+
     function translateNode(node, parentContainersScanned = false, visitedElements = null) {
         try {
             if (!node) return;
@@ -6128,18 +6315,26 @@ function getDynamicProductUiTranslation(value, node = null) {
                     if (visitedElements.has(node)) return;
                     visitedElements.add(node);
                 }
-                if (node.hasAttribute(SKIP_TRANSLATION_ATTR)) return;
+                if (node.hasAttribute(SKIP_TRANSLATION_ATTR)) {
+                    if (isPureThoughtSkipContext(node)) {
+                        translateModelRetryInsideThought(node);
+                    }
+                    return;
+                }
                 const prev = node.previousElementSibling;
                 if (prev && prev.hasAttribute('data-ag-thought-header') && node.parentElement && node.parentElement.children.length === 2) {
                     node.setAttribute(SKIP_TRANSLATION_ATTR, 'true');
                     blockedZoneCache.set(node, -1);
+                    if (isPureThoughtSkipContext(node)) {
+                        translateModelRetryInsideThought(node);
+                    }
                     return;
                 }
 
                 const tag = node.tagName.toUpperCase();
                 const className = typeof node.className === 'string' ? node.className : '';
 
-                if (className && HARD_PRUNED_CLASS_REGEX.test(className)) {
+                if ((className && HARD_PRUNED_CLASS_REGEX.test(className)) || node.hasAttribute('data-line-tokens') || node.getAttribute('data-testid') === 'code-gutter') {
                     if (node.getAttribute('translate') !== 'no') node.setAttribute('translate', 'no');
                     try {
                         if (!node.classList.contains('notranslate')) node.classList.add('notranslate');
@@ -6160,7 +6355,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 if (node.getAttribute('contenteditable') === 'true') {
                     isBlocked = true;
 
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'aria-label', 'title', 'data-tooltip']) {
                         const value = node.getAttribute(attr);
                         if (!value) continue;
                         const normalizedValue = norm(value);
@@ -6196,7 +6391,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                     }
                     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SVG') {
                         const parentBlocked = getElementBlockedState(node.parentElement) !== 0;
-                        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                        for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                             const v = node.getAttribute(attr);
                             if (v) {
                                 const searchingTrans = getSearchingStatusTranslation(v);
@@ -6220,7 +6415,12 @@ function getDynamicProductUiTranslation(value, node = null) {
                 }
 
                 const blockedState = getElementBlockedState(node);
-                if (blockedState === 2) return;
+                if (blockedState === 2) {
+                    if (isPureThoughtSkipContext(node)) {
+                        translateModelRetryInsideThought(node);
+                    }
+                    return;
+                }
 
                 if (isSwarmBoardDocument()) {
                     if (translateSwarmBoardContainers(node) === 'skip_children') return;
@@ -6236,7 +6436,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                 if (blockedState === 0 || isFoldButtonContainer) {
                     if (translateSpecialContainers(node) === 'skip_children') return;
                     translateCombinedTextChildren(node);
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                         const v = node.getAttribute(attr);
                         if (v) {
                             const searchingTrans = getSearchingStatusTranslation(v);
@@ -6256,7 +6456,7 @@ function getDynamicProductUiTranslation(value, node = null) {
                         }
                     }
                 } else {
-                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label']) {
+                    for (const attr of ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip']) {
                         const v = node.getAttribute(attr);
                         if (v) {
                             const searchingTrans = getSearchingStatusTranslation(v);
@@ -6284,7 +6484,15 @@ function getDynamicProductUiTranslation(value, node = null) {
 
                 const parentEl = node.parentElement;
                 const parentBlockedState = getElementBlockedState(parentEl);
-                if (parentBlockedState === 2) return;
+                if (parentBlockedState === 2) {
+                    if (originalVal.length <= 96 && /^\\s*Model\\s+unavailable,\\s*retrying\\b/i.test(originalVal) && isPureThoughtSkipContext(parentEl)) {
+                        const retryTrans = getModelUnavailableRetryTranslation(originalVal);
+                        if (retryTrans && retryTrans !== originalVal) {
+                            replaceTextNode(node, retryTrans);
+                        }
+                    }
+                    return;
+                }
 
                 if (originalVal.length >= 9 && (originalVal.includes('pack.info') || originalVal.includes('PACK.INFO') || originalVal.toLowerCase().includes('pack.info'))) {
                     if (parentEl) {
@@ -7040,7 +7248,7 @@ function getDynamicProductUiTranslation(value, node = null) {
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-uri', 'href']
+        attributeFilter: ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip', 'data-uri', 'href']
     };
 
     let engineStarted = false;
@@ -7102,7 +7310,11 @@ function getDynamicProductUiTranslation(value, node = null) {
         "Select All": "全选",
         "Close Tab": "关闭标签页",
         "Close Other Tabs": "关闭其他标签页",
+        "Close Tabs to the Left": "关闭左侧标签页",
         "Close Tabs to the Right": "关闭右侧标签页",
+        "Pin Tab": "置顶标签页",
+        "Unpin Tab": "取消置顶标签页",
+        "Keep Open": "保持打开",
         "Back": "后退",
         "Forward": "前进",
         "Reload": "重新加载",
@@ -7201,12 +7413,18 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
     const pathMod = require("path");
     const zlibMod = require("zlib");
 
-    const MAX_OFFICE_FILE_BYTES = 80 * 1024 * 1024;
+    const MAX_OFFICE_FILE_BYTES = 150 * 1024 * 1024;
     const MAX_ZIP_ENTRY_BYTES = 48 * 1024 * 1024;
     const MAX_XLSX_SHEETS = 25;
     const MAX_XLSX_ROWS = 400;
     const MAX_XLSX_COLS = 52;
     const MAX_DOCX_BLOCKS = 800;
+    const MAX_EPUB_INLINE_IMG_BYTES = 8 * 1024 * 1024;
+    const MAX_EPUB_CHAPTER_IMG_TOTAL_BYTES = 20 * 1024 * 1024;
+    const MAX_EPUB_SESSION_CACHE = 3;
+    const MAX_EPUB_SEARCH_RESULTS = 100;
+
+    const epubSessionCache = new Map();
 
     function assertMainFrame(event) {
         if (event && event.senderFrame && event.senderFrame.parent) {
@@ -7239,13 +7457,64 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
                 const code = parseInt(hex, 16);
                 return code === 13 ? "" : String.fromCharCode(code);
             })
-            .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-            .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+            .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex) => {
+                const cp = parseInt(hex, 16);
+                return (cp >= 0 && cp <= 0x10ffff) ? String.fromCodePoint(cp) : "";
+            })
+            .replace(/&#(\d+);/g, (_, dec) => {
+                const cp = parseInt(dec, 10);
+                return (cp >= 0 && cp <= 0x10ffff) ? String.fromCodePoint(cp) : "";
+            })
             .replace(/&lt;/g, "<")
             .replace(/&gt;/g, ">")
             .replace(/&quot;/g, '"')
             .replace(/&apos;/g, "'")
             .replace(/&amp;/g, "&");
+    }
+
+    function decodeHtmlText(str) {
+        if (!str) return "";
+        const entityMap = {
+            nbsp: " ",
+            ensp: " ",
+            emsp: " ",
+            thinsp: " ",
+            mdash: "—",
+            ndash: "–",
+            hellip: "…",
+            ldquo: "“",
+            rdquo: "”",
+            lsquo: "‘",
+            rsquo: "’",
+            middot: "·",
+            bull: "•",
+            copy: "©",
+            reg: "®",
+            trade: "™",
+            times: "×",
+            divide: "÷",
+            plusmn: "±",
+            laquo: "«",
+            raquo: "»"
+        };
+        return decodeXml(str).replace(/&([A-Za-z]+);/g, (all, name) => {
+            const hit = entityMap[name.toLowerCase()];
+            return hit !== undefined ? hit : all;
+        });
+    }
+
+    function stripEpubTags(html) {
+        if (!html) return "";
+        return decodeHtmlText(String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+    }
+
+    function safeDecodeUriPart(str) {
+        if (!str) return "";
+        try {
+            return decodeURIComponent(str);
+        } catch (e) {
+            return str;
+        }
     }
 
     function getXmlAttr(attrText, name) {
@@ -7279,6 +7548,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
         }
 
         const entries = new Map();
+        const lowerEntries = new Map();
         let ptr = cdOffset;
         const cdEnd = cdOffset + cdSize;
         while (ptr + 46 <= cdEnd) {
@@ -7294,40 +7564,81 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             if (nameStart + nameLen > buf.length) break;
             const rawName = buf.toString("utf8", nameStart, nameStart + nameLen).replace(/\\/g, "/");
             entries.set(rawName, { compMethod, compSize, uncompSize, localHeaderOffset });
+            const lk = rawName.toLowerCase();
+            if (!lowerEntries.has(lk)) lowerEntries.set(lk, rawName);
             ptr = nameStart + nameLen + extraLen + commentLen;
+        }
+
+        function findActualName(name) {
+            if (!name) return null;
+            if (entries.has(name)) return name;
+            return lowerEntries.get(String(name).toLowerCase()) || null;
+        }
+
+        function readBuffer(name) {
+            const actualName = findActualName(name);
+            if (!actualName) return null;
+            const entry = entries.get(actualName);
+            if (!entry) return null;
+            if (entry.uncompSize > MAX_ZIP_ENTRY_BYTES) {
+                throw new Error("单个归档条目体积超过安全预览上限 (48MB)");
+            }
+            const lh = entry.localHeaderOffset;
+            if (lh + 30 > buf.length || buf.readUInt32LE(lh) !== 0x04034b50) {
+                throw new Error("ZIP 本地文件头损坏: " + actualName);
+            }
+            const lfNameLen = buf.readUInt16LE(lh + 26);
+            const lfExtraLen = buf.readUInt16LE(lh + 28);
+            const dataStart = lh + 30 + lfNameLen + lfExtraLen;
+            const dataEnd = dataStart + entry.compSize;
+            if (dataEnd > buf.length) {
+                throw new Error("ZIP 数据区越界: " + actualName);
+            }
+            const slice = buf.subarray(dataStart, dataEnd);
+            if (entry.compMethod === 0) {
+                return Buffer.from(slice);
+            }
+            if (entry.compMethod === 8) {
+                return zlibMod.inflateRawSync(slice, { maxOutputLength: MAX_ZIP_ENTRY_BYTES });
+            }
+            throw new Error("不支持的压缩算法 (method=" + entry.compMethod + ")");
+        }
+
+        function resolveEntry(baseDir, rawHref) {
+            if (typeof rawHref !== "string") return null;
+            const trimmed = rawHref.trim();
+            if (!trimmed || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(trimmed)) return null;
+            const clean = trimmed.split("#")[0].split("?")[0].replace(/\\/g, "/");
+            if (!clean) return null;
+            const baseClean = (baseDir && baseDir !== ".") ? String(baseDir).replace(/\/+$/, "") : "";
+            const buildNorm = (part) => {
+                const joined = part.startsWith("/") ? part.slice(1) : (baseClean ? (baseClean + "/" + part) : part);
+                return pathMod.posix.normalize(joined).replace(/^(\.\.\/)+/, "").replace(/^\/+/, "");
+            };
+            const candidates = [
+                buildNorm(safeDecodeUriPart(clean)),
+                buildNorm(clean)
+            ];
+            for (let i = 0; i < candidates.length; i++) {
+                const hit = findActualName(candidates[i]);
+                if (hit) return hit;
+            }
+            return null;
         }
 
         return {
             entries,
             has(name) {
-                return entries.has(name);
+                return Boolean(findActualName(name));
             },
+            resolveEntry,
+            readBuffer,
             readText(name) {
-                const entry = entries.get(name);
-                if (!entry) return null;
-                if (entry.uncompSize > MAX_ZIP_ENTRY_BYTES) {
-                    throw new Error("单工作表 XML 体积超过安全预览上限 (48MB)");
-                }
-                const lh = entry.localHeaderOffset;
-                if (lh + 30 > buf.length || buf.readUInt32LE(lh) !== 0x04034b50) {
-                    throw new Error("ZIP 本地文件头损坏: " + name);
-                }
-                const lfNameLen = buf.readUInt16LE(lh + 26);
-                const lfExtraLen = buf.readUInt16LE(lh + 28);
-                const dataStart = lh + 30 + lfNameLen + lfExtraLen;
-                const dataEnd = dataStart + entry.compSize;
-                if (dataEnd > buf.length) {
-                    throw new Error("ZIP 数据区越界: " + name);
-                }
-                const slice = buf.subarray(dataStart, dataEnd);
-                if (entry.compMethod === 0) {
-                    return slice.toString("utf8");
-                }
-                if (entry.compMethod === 8) {
-                    const out = zlibMod.inflateRawSync(slice, { maxOutputLength: MAX_ZIP_ENTRY_BYTES });
-                    return out.toString("utf8");
-                }
-                throw new Error("不支持的压缩算法 (method=" + entry.compMethod + ")");
+                const out = readBuffer(name);
+                if (!out) return null;
+                let txt = out.toString("utf8");
+                if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+                return txt;
             }
         };
     }
@@ -7826,6 +8137,580 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
         };
     }
 
+    function splitHrefAndAnchor(rawHref) {
+        const raw = typeof rawHref === "string" ? rawHref.trim() : "";
+        if (!raw) return { filePart: "", anchor: "" };
+        const hashIdx = raw.indexOf("#");
+        const filePart = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
+        const frag = hashIdx >= 0 ? raw.slice(hashIdx + 1) : "";
+        return {
+            filePart: filePart.split("?")[0],
+            anchor: safeDecodeUriPart(frag)
+        };
+    }
+
+    function findMatchingCloseTag(xml, tagLocal, contentStartIdx) {
+        const re = new RegExp("<(\\/?)(?:[A-Za-z0-9_]+:)?" + tagLocal + "(?=[\\s\\/>])([^>]*)>", "gi");
+        re.lastIndex = contentStartIdx;
+        let depth = 1;
+        let m;
+        while ((m = re.exec(xml)) !== null) {
+            if (m[1] === "/") {
+                depth--;
+                if (depth === 0) {
+                    return { innerEnd: m.index, outerEnd: re.lastIndex };
+                }
+            } else if (!/\/\s*$/.test(m[0])) {
+                depth++;
+            }
+        }
+        return null;
+    }
+
+    function isEpubDrmProtected(zip) {
+        const encXml = zip.readText("META-INF/encryption.xml");
+        if (!encXml) return false;
+        const edRe = /<(?:[A-Za-z0-9_]+:)?EncryptedData\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?EncryptedData>/gi;
+        let m;
+        let sawAnyBlock = false;
+        while ((m = edRe.exec(encXml)) !== null) {
+            sawAnyBlock = true;
+            const blk = m[1];
+            const methodMatch = /<(?:[A-Za-z0-9_]+:)?EncryptionMethod\b([^>]*)/i.exec(blk);
+            const alg = methodMatch ? getXmlAttr(methodMatch[1], "Algorithm") : "";
+            if (/idpf\.org\/2008\/embedding|ns\.adobe\.com\/pdf\/enc#RC/i.test(alg)) {
+                continue;
+            }
+            const refRe = /<(?:[A-Za-z0-9_]+:)?CipherReference\b([^>]*)/gi;
+            let rm;
+            let matchedRef = false;
+            while ((rm = refRe.exec(blk)) !== null) {
+                matchedRef = true;
+                const uri = (getXmlAttr(rm[1], "URI") || "").split("?")[0].toLowerCase();
+                if (!/\.(ttf|otf|woff2?|eot)$/i.test(uri)) {
+                    return true;
+                }
+            }
+            if (!matchedRef) {
+                return true;
+            }
+        }
+        if (!sawAnyBlock && /CipherReference|EncryptedKey/i.test(encXml)) {
+            return true;
+        }
+        return false;
+    }
+
+    function parseEpubNavToc(navXml, navDir, navZipPath, zip, spineIndexLookup) {
+        if (!navXml) return [];
+        const navRe = /<nav\b([^>]*)>/gi;
+        let nm;
+        let chosenInner = "";
+        let fallbackInner = "";
+        while ((nm = navRe.exec(navXml)) !== null) {
+            const close = findMatchingCloseTag(navXml, "nav", navRe.lastIndex);
+            if (!close) continue;
+            const inner = navXml.slice(navRe.lastIndex, close.innerEnd);
+            const attrs = nm[1] || "";
+            if (!fallbackInner && /<(?:ol|ul)\b/i.test(inner)) {
+                fallbackInner = inner;
+            }
+            if (/\btoc\b|doc-toc/i.test(attrs)) {
+                chosenInner = inner;
+                break;
+            }
+        }
+        const navBody = chosenInner || fallbackInner;
+        if (!navBody) return [];
+
+        function parseListElements(sliceXml, depth) {
+            const nodes = [];
+            let pos = 0;
+            while (pos < sliceXml.length) {
+                const listRe = /<(ol|ul)\b([^>]*)>/gi;
+                listRe.lastIndex = pos;
+                const lm = listRe.exec(sliceXml);
+                if (!lm) break;
+                const listClose = findMatchingCloseTag(sliceXml, lm[1], listRe.lastIndex);
+                if (!listClose) break;
+                const listInner = sliceXml.slice(listRe.lastIndex, listClose.innerEnd);
+                pos = listClose.outerEnd;
+
+                let liPos = 0;
+                while (liPos < listInner.length) {
+                    const liRe = /<li\b([^>]*)>/gi;
+                    liRe.lastIndex = liPos;
+                    const lim = liRe.exec(listInner);
+                    if (!lim) break;
+                    const liClose = findMatchingCloseTag(listInner, "li", liRe.lastIndex);
+                    if (!liClose) break;
+                    const liInner = listInner.slice(liRe.lastIndex, liClose.innerEnd);
+                    liPos = liClose.outerEnd;
+
+                    const subListMatch = /<(?:ol|ul)\b/i.exec(liInner);
+                    const headXml = subListMatch ? liInner.slice(0, subListMatch.index) : liInner;
+                    const tailXml = subListMatch ? liInner.slice(subListMatch.index) : "";
+
+                    let title = "";
+                    let rawHref = "";
+                    const aMatch = /<a\b([^>]*)>([\s\S]*?)<\/a>/i.exec(headXml);
+                    if (aMatch) {
+                        rawHref = getXmlAttr(aMatch[1], "href");
+                        title = stripEpubTags(aMatch[2]);
+                    } else {
+                        title = stripEpubTags(headXml);
+                    }
+
+                    let spineIndex = -1;
+                    let anchor = "";
+                    if (rawHref) {
+                        const parts = splitHrefAndAnchor(rawHref);
+                        anchor = parts.anchor;
+                        const resolvedZip = parts.filePart
+                            ? zip.resolveEntry(navDir, parts.filePart)
+                            : (rawHref.startsWith("#") ? navZipPath : null);
+                        if (resolvedZip) {
+                            spineIndex = spineIndexLookup(resolvedZip);
+                        }
+                    }
+
+                    const children = tailXml ? parseListElements(tailXml, depth + 1) : [];
+                    if (title) {
+                        nodes.push({
+                            title,
+                            level: depth,
+                            spineIndex,
+                            anchor,
+                            href: rawHref,
+                            children
+                        });
+                    } else if (children.length > 0) {
+                        for (let k = 0; k < children.length; k++) nodes.push(children[k]);
+                    }
+                }
+            }
+            return nodes;
+        }
+
+        return parseListElements(navBody, 0);
+    }
+
+    function parseEpubNcxToc(ncxXml, ncxDir, zip, spineIndexLookup) {
+        if (!ncxXml) return [];
+        const navMapStart = /<(?:[A-Za-z0-9_]+:)?navMap\b[^>]*>/i.exec(ncxXml);
+        if (!navMapStart) return [];
+        const navMapClose = findMatchingCloseTag(ncxXml, "navMap", navMapStart.index + navMapStart[0].length);
+        const navMapInner = navMapClose
+            ? ncxXml.slice(navMapStart.index + navMapStart[0].length, navMapClose.innerEnd)
+            : ncxXml.slice(navMapStart.index + navMapStart[0].length);
+
+        function parseNavPoints(sliceXml, depth) {
+            const nodes = [];
+            let pos = 0;
+            while (pos < sliceXml.length) {
+                const ptRe = /<(?:[A-Za-z0-9_]+:)?navPoint\b([^>]*)>/gi;
+                ptRe.lastIndex = pos;
+                const pm = ptRe.exec(sliceXml);
+                if (!pm) break;
+                const close = findMatchingCloseTag(sliceXml, "navPoint", ptRe.lastIndex);
+                if (!close) break;
+                const ptInner = sliceXml.slice(ptRe.lastIndex, close.innerEnd);
+                pos = close.outerEnd;
+
+                const subPtMatch = /<(?:[A-Za-z0-9_]+:)?navPoint\b/i.exec(ptInner);
+                const headXml = subPtMatch ? ptInner.slice(0, subPtMatch.index) : ptInner;
+                const tailXml = subPtMatch ? ptInner.slice(subPtMatch.index) : "";
+
+                const lblMatch = /<(?:[A-Za-z0-9_]+:)?text\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?text>/i.exec(headXml);
+                const title = lblMatch ? stripEpubTags(lblMatch[1]) : "";
+
+                const cntMatch = /<(?:[A-Za-z0-9_]+:)?content\b([^>]*)\/?>/i.exec(headXml);
+                const rawSrc = cntMatch ? getXmlAttr(cntMatch[1], "src") : "";
+
+                let spineIndex = -1;
+                let anchor = "";
+                if (rawSrc) {
+                    const parts = splitHrefAndAnchor(rawSrc);
+                    anchor = parts.anchor;
+                    const resolvedZip = parts.filePart ? zip.resolveEntry(ncxDir, parts.filePart) : null;
+                    if (resolvedZip) {
+                        spineIndex = spineIndexLookup(resolvedZip);
+                    }
+                }
+
+                const children = tailXml ? parseNavPoints(tailXml, depth + 1) : [];
+                if (title || children.length > 0) {
+                    nodes.push({
+                        title: title || "(未命名章节)",
+                        level: depth,
+                        spineIndex,
+                        anchor,
+                        href: rawSrc,
+                        children
+                    });
+                }
+            }
+            return nodes;
+        }
+
+        return parseNavPoints(navMapInner, 0);
+    }
+
+    function extractEpubBookMeta(opfXml, fallbackName) {
+        const metaMatch = /<(?:[A-Za-z0-9_]+:)?metadata\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?metadata>/i.exec(opfXml);
+        const metaXml = metaMatch ? metaMatch[1] : opfXml;
+
+        const firstTag = (localName) => {
+            const re = new RegExp("<(?:[A-Za-z0-9_]+:)?" + localName + "\\b[^>]*>([\\s\\S]*?)<\\/(?:[A-Za-z0-9_]+:)?" + localName + ">", "i");
+            const m = re.exec(metaXml);
+            return m ? stripEpubTags(m[1]) : "";
+        };
+        const creators = [];
+        const creatorRe = /<(?:[A-Za-z0-9_]+:)?creator\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?creator>/gi;
+        let cm;
+        while ((cm = creatorRe.exec(metaXml)) !== null) {
+            const c = stripEpubTags(cm[1]);
+            if (c && creators.indexOf(c) === -1) creators.push(c);
+        }
+
+        return {
+            title: firstTag("title") || fallbackName.replace(/\.epub$/i, ""),
+            creator: creators.join(" / "),
+            publisher: firstTag("publisher"),
+            language: firstTag("language"),
+            date: firstTag("date")
+        };
+    }
+
+    function extractFallbackHeadingTitle(html) {
+        if (!html) return "";
+        const sample = html.length > 24576 ? html.slice(0, 24576) : html;
+        const hMatch = /<h([12])\b[^>]*>([\s\S]*?)<\/h\1>/i.exec(sample);
+        if (hMatch) {
+            const ht = stripEpubTags(hMatch[2]);
+            if (ht && ht.length <= 120) return ht;
+        }
+        const tMatch = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(sample);
+        if (tMatch) {
+            const tt = stripEpubTags(tMatch[1]);
+            if (
+                tt &&
+                tt.length <= 120 &&
+                !/\.(xhtml|html|htm|xml)$/i.test(tt) &&
+                !/^(?:ch|chap|chapter|text|section|part|page)[_-]?\d+$/i.test(tt)
+            ) {
+                return tt;
+            }
+        }
+        return "";
+    }
+
+    function getEpubImageMime(filePath) {
+        const ext = pathMod.extname(String(filePath || "")).toLowerCase();
+        if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+        if (ext === ".png") return "image/png";
+        if (ext === ".gif") return "image/gif";
+        if (ext === ".webp") return "image/webp";
+        if (ext === ".svg") return "image/svg+xml";
+        return null;
+    }
+
+    function inlineEpubChapterImages(zip, chapterDir, rawHtml) {
+        if (!rawHtml) return { html: "", truncatedImages: false };
+        let totalInlinedBytes = 0;
+        let truncatedImages = false;
+        const cache = new Map();
+
+        function toDataUri(rawSrc) {
+            if (!rawSrc) return null;
+            const trimmed = rawSrc.trim();
+            if (/^(?:data:|https?:|mailto:|#)/i.test(trimmed)) return null;
+            const imgZipPath = zip.resolveEntry(chapterDir, trimmed);
+            if (!imgZipPath) return null;
+            if (cache.has(imgZipPath)) return cache.get(imgZipPath);
+            const mime = getEpubImageMime(imgZipPath);
+            if (!mime) return null;
+            try {
+                const imgBuf = zip.readBuffer(imgZipPath);
+                if (!imgBuf || imgBuf.length === 0) return null;
+                if (imgBuf.length > MAX_EPUB_INLINE_IMG_BYTES || totalInlinedBytes + imgBuf.length > MAX_EPUB_CHAPTER_IMG_TOTAL_BYTES) {
+                    truncatedImages = true;
+                    cache.set(imgZipPath, null);
+                    return null;
+                }
+                totalInlinedBytes += imgBuf.length;
+                const dataUri = "data:" + mime + ";base64," + imgBuf.toString("base64");
+                cache.set(imgZipPath, dataUri);
+                return dataUri;
+            } catch (e) {
+                truncatedImages = true;
+                return null;
+            }
+        }
+
+        let out = rawHtml.replace(/<img\b([^>]*?)>/gi, (full, attrs) => {
+            const srcMatch = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+            if (!srcMatch) return full;
+            const rawVal = decodeXml(srcMatch[1] !== undefined ? srcMatch[1] : srcMatch[2]);
+            const dataUri = toDataUri(rawVal);
+            if (!dataUri) return full;
+            return full.replace(srcMatch[0], 'src="' + dataUri + '"');
+        });
+
+        out = out.replace(/<image\b([^>]*?)>/gi, (full, attrs) => {
+            const hrefMatch = /(?:xlink:href|href)\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+            if (!hrefMatch) return full;
+            const rawVal = decodeXml(hrefMatch[1] !== undefined ? hrefMatch[1] : hrefMatch[2]);
+            const dataUri = toDataUri(rawVal);
+            if (!dataUri) return full;
+            return full.replace(hrefMatch[0], 'href="' + dataUri + '"');
+        });
+
+        return { html: out, truncatedImages };
+    }
+
+    function extractEpubPlainText(rawHtml) {
+        if (!rawHtml) return "";
+        const stripped = rawHtml
+            .replace(/<head\b[\s\S]*?<\/head>/gi, " ")
+            .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+            .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+            .replace(/<(?:annotation|annotation-xml)\b[\s\S]*?<\/(?:annotation|annotation-xml)>/gi, " ")
+            .replace(/<[^>]+>/g, " ");
+        return decodeHtmlText(stripped).replace(/\s+/g, " ").trim();
+    }
+
+    function readEpubChapterPayload(session, spineIndex) {
+        const idx = Number(spineIndex);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= session.spine.length) {
+            throw new Error("无效的章节索引: " + spineIndex);
+        }
+        const ch = session.spine[idx];
+        const rawHtml = session.zip.readText(ch.zipPath);
+        if (rawHtml === null) {
+            throw new Error("无法读取章节内容: " + ch.zipPath);
+        }
+        const { html, truncatedImages } = inlineEpubChapterImages(session.zip, ch.baseDir, rawHtml);
+        return {
+            ok: true,
+            spineIndex: idx,
+            title: ch.title,
+            zipPath: ch.zipPath,
+            baseDir: ch.baseDir,
+            html,
+            truncatedImages
+        };
+    }
+
+    function loadOrBuildEpubSession(nativePath, stat, meta) {
+        const cached = epubSessionCache.get(nativePath);
+        if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+            epubSessionCache.delete(nativePath);
+            epubSessionCache.set(nativePath, cached);
+            return cached;
+        }
+
+        const buf = fsSync.readFileSync(nativePath);
+        const zip = openZipBuffer(buf);
+        const encrypted = isEpubDrmProtected(zip);
+        if (encrypted) {
+            const encSession = {
+                key: nativePath,
+                mtimeMs: stat.mtimeMs,
+                size: stat.size,
+                meta,
+                encrypted: true,
+                zip,
+                bookMeta: { title: meta.fileName.replace(/\.epub$/i, ""), creator: "", publisher: "", language: "", date: "" },
+                spine: [],
+                spineInfo: [],
+                toc: [],
+                chapterPlainTexts: []
+            };
+            if (epubSessionCache.size >= MAX_EPUB_SESSION_CACHE) {
+                const oldestKey = epubSessionCache.keys().next().value;
+                epubSessionCache.delete(oldestKey);
+            }
+            epubSessionCache.set(nativePath, encSession);
+            return encSession;
+        }
+
+        let opfPath = null;
+        const containerXml = zip.readText("META-INF/container.xml");
+        if (containerXml) {
+            const rfMatch = /<(?:[A-Za-z0-9_]+:)?rootfile\b([^>]*)\/?>/i.exec(containerXml);
+            if (rfMatch) {
+                const fullPath = getXmlAttr(rfMatch[1], "full-path");
+                if (fullPath) opfPath = zip.resolveEntry("", fullPath);
+            }
+        }
+        if (!opfPath) {
+            for (const entryName of zip.entries.keys()) {
+                if (/\.opf$/i.test(entryName)) {
+                    opfPath = entryName;
+                    break;
+                }
+            }
+        }
+        if (!opfPath) {
+            throw new Error("未找到 EPUB 容器索引文件 (.opf)");
+        }
+
+        const opfXml = zip.readText(opfPath);
+        if (!opfXml) {
+            throw new Error("无法读取 OPF 元数据文件: " + opfPath);
+        }
+        const rawOpfDir = pathMod.posix.dirname(opfPath);
+        const opfDir = rawOpfDir === "." ? "" : rawOpfDir;
+
+        const bookMeta = extractEpubBookMeta(opfXml, meta.fileName);
+
+        const manifestById = new Map();
+        let navItemPath = null;
+        let ncxItemPath = null;
+        const manifestItemRe = /<(?:[A-Za-z0-9_]+:)?item\b([^>]*)\/?>/gi;
+        let mm;
+        while ((mm = manifestItemRe.exec(opfXml)) !== null) {
+            const attrs = mm[1];
+            const id = getXmlAttr(attrs, "id");
+            const href = getXmlAttr(attrs, "href");
+            const mediaType = getXmlAttr(attrs, "media-type");
+            const properties = getXmlAttr(attrs, "properties");
+            if (!id || !href) continue;
+            const resolved = zip.resolveEntry(opfDir, href);
+            manifestById.set(id, { id, href, mediaType, properties, zipPath: resolved });
+            if (properties && /\bnav\b/i.test(properties) && resolved) {
+                navItemPath = resolved;
+            }
+            if (!ncxItemPath && /dtbncx/i.test(mediaType) && resolved) {
+                ncxItemPath = resolved;
+            }
+        }
+
+        const spineOpenMatch = /<(?:[A-Za-z0-9_]+:)?spine\b([^>]*)>/i.exec(opfXml);
+        if (spineOpenMatch) {
+            const spineTocId = getXmlAttr(spineOpenMatch[1], "toc");
+            if (spineTocId && manifestById.has(spineTocId)) {
+                const candidateNcx = manifestById.get(spineTocId).zipPath;
+                if (candidateNcx) ncxItemPath = candidateNcx;
+            }
+        }
+
+        const spineMatch = /<(?:[A-Za-z0-9_]+:)?spine\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?spine>/i.exec(opfXml);
+        const spineXml = spineMatch ? spineMatch[1] : opfXml;
+        const spine = [];
+        const spineIndexByPath = new Map();
+        const itemrefRe = /<(?:[A-Za-z0-9_]+:)?itemref\b([^>]*)\/?>/gi;
+        let irMatch;
+        while ((irMatch = itemrefRe.exec(spineXml)) !== null) {
+            const idref = getXmlAttr(irMatch[1], "idref");
+            if (!idref || !manifestById.has(idref)) continue;
+            const item = manifestById.get(idref);
+            if (!item.zipPath) continue;
+            if (
+                item.mediaType &&
+                !/xhtml|html|xml/i.test(item.mediaType) &&
+                !/\.(xhtml|html|htm|xml)$/i.test(item.zipPath)
+            ) {
+                continue;
+            }
+            const idx = spine.length;
+            const rawDir = pathMod.posix.dirname(item.zipPath);
+            spine.push({
+                index: idx,
+                id: item.id,
+                zipPath: item.zipPath,
+                baseDir: rawDir === "." ? "" : rawDir,
+                title: ""
+            });
+            spineIndexByPath.set(item.zipPath, idx);
+            spineIndexByPath.set(item.zipPath.toLowerCase(), idx);
+        }
+
+        function lookupSpineIndex(zipPath) {
+            if (!zipPath) return -1;
+            if (spineIndexByPath.has(zipPath)) return spineIndexByPath.get(zipPath);
+            const lk = zipPath.toLowerCase();
+            return spineIndexByPath.has(lk) ? spineIndexByPath.get(lk) : -1;
+        }
+
+        let toc = [];
+        if (navItemPath) {
+            const navXml = zip.readText(navItemPath);
+            const rawNavDir = pathMod.posix.dirname(navItemPath);
+            toc = parseEpubNavToc(navXml, rawNavDir === "." ? "" : rawNavDir, navItemPath, zip, lookupSpineIndex);
+        }
+        if (toc.length === 0 && ncxItemPath) {
+            const ncxXml = zip.readText(ncxItemPath);
+            const rawNcxDir = pathMod.posix.dirname(ncxItemPath);
+            toc = parseEpubNcxToc(ncxXml, rawNcxDir === "." ? "" : rawNcxDir, zip, lookupSpineIndex);
+        }
+
+        function backfillSpineTitles(nodes, preferNoAnchor) {
+            for (let i = 0; i < nodes.length; i++) {
+                const n = nodes[i];
+                if (n.spineIndex >= 0 && n.title) {
+                    if (!preferNoAnchor || !n.anchor) {
+                        if (!spine[n.spineIndex].title) {
+                            spine[n.spineIndex].title = n.title;
+                        }
+                    }
+                }
+                if (n.children && n.children.length > 0) {
+                    backfillSpineTitles(n.children, preferNoAnchor);
+                }
+            }
+        }
+        backfillSpineTitles(toc, true);
+        backfillSpineTitles(toc, false);
+
+        for (let i = 0; i < spine.length; i++) {
+            if (!spine[i].title) {
+                const htmlHead = zip.readText(spine[i].zipPath);
+                spine[i].title = extractFallbackHeadingTitle(htmlHead) || ("第 " + (i + 1) + " 章");
+            }
+        }
+
+        if (toc.length === 0 && spine.length > 0) {
+            toc = spine.map((s) => ({
+                title: s.title,
+                level: 0,
+                spineIndex: s.index,
+                anchor: "",
+                href: s.zipPath,
+                children: []
+            }));
+        }
+
+        const spineInfo = spine.map((s) => ({
+            index: s.index,
+            title: s.title,
+            zipPath: s.zipPath,
+            baseDir: s.baseDir
+        }));
+
+        const session = {
+            key: nativePath,
+            mtimeMs: stat.mtimeMs,
+            size: stat.size,
+            meta,
+            encrypted: false,
+            zip,
+            bookMeta,
+            spine,
+            spineInfo,
+            toc,
+            chapterPlainTexts: new Array(spine.length)
+        };
+
+        if (epubSessionCache.size >= MAX_EPUB_SESSION_CACHE) {
+            const oldestKey = epubSessionCache.keys().next().value;
+            epubSessionCache.delete(oldestKey);
+        }
+        epubSessionCache.set(nativePath, session);
+        return session;
+    }
+
     try { electron_1.ipcMain.removeHandler("ag-ux:open-in-default-app"); } catch (e) {}
     electron_1.ipcMain.handle("ag-ux:open-in-default-app", async (event, uriOrPath) => {
         assertMainFrame(event);
@@ -7878,6 +8763,30 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
                 const zip = openZipBuffer(buf);
                 return parsePptx(zip, meta);
             }
+            if (ext === ".epub") {
+                const session = loadOrBuildEpubSession(nativePath, stat, meta);
+                if (session.encrypted) {
+                    return {
+                        ok: true,
+                        kind: "external-only",
+                        ...meta,
+                        reason: "该 EPUB 电子书受 DRM 数字版权加密保护，不支持直接解析正文，可尝试调用系统默认阅读器打开。"
+                    };
+                }
+                if (!session.spine.length) {
+                    throw new Error("EPUB 容器中未找到可阅读的章节内容 (spine 为空)");
+                }
+                const initialChapter = readEpubChapterPayload(session, 0);
+                return {
+                    ok: true,
+                    kind: "epub",
+                    ...meta,
+                    bookMeta: session.bookMeta,
+                    spine: session.spineInfo,
+                    toc: session.toc,
+                    initialChapter
+                };
+            }
 
             return {
                 ok: true,
@@ -7892,6 +8801,109 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
                 ok: false,
                 error: err && err.message ? err.message : String(err)
             };
+        }
+    });
+
+    try { electron_1.ipcMain.removeHandler("ag-ux:epub-read-chapter"); } catch (e) {}
+    electron_1.ipcMain.handle("ag-ux:epub-read-chapter", async (event, uriOrPath, spineIndex) => {
+        assertMainFrame(event);
+        try {
+            const nativePath = resolveNativePath(uriOrPath);
+            if (!fsSync.existsSync(nativePath)) {
+                return { ok: false, error: "本地文件不存在: " + nativePath };
+            }
+            const stat = fsSync.statSync(nativePath);
+            if (stat.size > MAX_OFFICE_FILE_BYTES) {
+                return { ok: false, error: "文件体积超过预览上限" };
+            }
+            const meta = {
+                ext: ".epub",
+                fileName: pathMod.basename(nativePath),
+                fileSize: stat.size,
+                path: nativePath
+            };
+            const session = loadOrBuildEpubSession(nativePath, stat, meta);
+            if (session.encrypted) {
+                return { ok: false, error: "该 EPUB 受 DRM 加密保护" };
+            }
+            return readEpubChapterPayload(session, spineIndex);
+        } catch (err) {
+            return { ok: false, error: err && err.message ? err.message : String(err) };
+        }
+    });
+
+    try { electron_1.ipcMain.removeHandler("ag-ux:epub-search"); } catch (e) {}
+    electron_1.ipcMain.handle("ag-ux:epub-search", async (event, uriOrPath, query) => {
+        assertMainFrame(event);
+        try {
+            const q = typeof query === "string" ? query.trim() : "";
+            if (!q) {
+                return { ok: true, totalHits: 0, truncated: false, results: [] };
+            }
+            const nativePath = resolveNativePath(uriOrPath);
+            if (!fsSync.existsSync(nativePath)) {
+                return { ok: false, error: "本地文件不存在: " + nativePath };
+            }
+            const stat = fsSync.statSync(nativePath);
+            if (stat.size > MAX_OFFICE_FILE_BYTES) {
+                return { ok: false, error: "文件体积超过预览上限" };
+            }
+            const meta = {
+                ext: ".epub",
+                fileName: pathMod.basename(nativePath),
+                fileSize: stat.size,
+                path: nativePath
+            };
+            const session = loadOrBuildEpubSession(nativePath, stat, meta);
+            if (session.encrypted) {
+                return { ok: false, error: "该 EPUB 受 DRM 加密保护" };
+            }
+
+            const qLower = q.toLowerCase();
+            const qLen = q.length;
+            let totalHits = 0;
+            const results = [];
+
+            for (let i = 0; i < session.spine.length; i++) {
+                let plain = session.chapterPlainTexts[i];
+                if (typeof plain !== "string") {
+                    const rawHtml = session.zip.readText(session.spine[i].zipPath) || "";
+                    plain = extractEpubPlainText(rawHtml);
+                    session.chapterPlainTexts[i] = plain;
+                }
+                if (!plain) continue;
+                const plainLower = plain.toLowerCase();
+                let pos = 0;
+                let matchOrdinal = 0;
+                while (pos < plainLower.length) {
+                    const hitIdx = plainLower.indexOf(qLower, pos);
+                    if (hitIdx === -1) break;
+                    totalHits++;
+                    if (results.length < MAX_EPUB_SEARCH_RESULTS) {
+                        const start = Math.max(0, hitIdx - 32);
+                        const end = Math.min(plain.length, hitIdx + qLen + 56);
+                        results.push({
+                            spineIndex: i,
+                            chapterTitle: session.spine[i].title,
+                            matchOrdinal,
+                            pre: (start > 0 ? "…" : "") + plain.slice(start, hitIdx),
+                            match: plain.slice(hitIdx, hitIdx + qLen),
+                            post: plain.slice(hitIdx + qLen, end) + (end < plain.length ? "…" : "")
+                        });
+                    }
+                    matchOrdinal++;
+                    pos = hitIdx + Math.max(1, qLen);
+                }
+            }
+
+            return {
+                ok: true,
+                totalHits,
+                truncated: totalHits > MAX_EPUB_SEARCH_RESULTS,
+                results
+            };
+        } catch (err) {
+            return { ok: false, error: err && err.message ? err.message : String(err) };
         }
     });
 }
@@ -7978,6 +8990,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             '.ag-office-badge-xlsx { background: rgba(16, 185, 129, 0.16); color: #10b981; }',
             '.ag-office-badge-docx { background: rgba(59, 130, 246, 0.16); color: #3b82f6; }',
             '.ag-office-badge-pptx { background: rgba(249, 115, 22, 0.16); color: #f97316; }',
+            '.ag-office-badge-epub { background: rgba(168, 85, 247, 0.16); color: #a855f7; }',
             '.ag-office-badge-bin  { background: var(--secondary); color: var(--secondary-foreground); }',
             '.ag-office-btn {',
             '  display: inline-flex;',
@@ -8139,6 +9152,259 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             '  padding: 5px 8px;',
             '  white-space: pre-wrap;',
             '  vertical-align: top;',
+            '}',
+            '.ag-epub-btn-active {',
+            '  background: rgba(168, 85, 247, 0.16);',
+            '  border-color: rgba(168, 85, 247, 0.5);',
+            '  color: #a855f7;',
+            '}',
+            '.ag-epub-font-group {',
+            '  display: inline-flex;',
+            '  align-items: center;',
+            '  gap: 2px;',
+            '  border: 1px solid var(--border);',
+            '  border-radius: 6px;',
+            '  padding: 1px;',
+            '  background: var(--background);',
+            '}',
+            '.ag-epub-font-btn {',
+            '  border: none;',
+            '  background: transparent;',
+            '  color: var(--foreground);',
+            '  font-size: 11px;',
+            '  font-weight: 600;',
+            '  padding: 2px 6px;',
+            '  border-radius: 4px;',
+            '  cursor: pointer;',
+            '  line-height: 1.4;',
+            '}',
+            '.ag-epub-font-btn:hover:not(:disabled) { background: var(--secondary); }',
+            '.ag-epub-font-btn:disabled { opacity: 0.4; cursor: default; }',
+            '.ag-epub-body {',
+            '  display: flex;',
+            '  flex: 1;',
+            '  min-height: 0;',
+            '  overflow: hidden;',
+            '  position: relative;',
+            '  background: var(--background);',
+            '}',
+            '.ag-epub-sidebar {',
+            '  width: 248px;',
+            '  min-width: 190px;',
+            '  max-width: 42%;',
+            '  flex-shrink: 0;',
+            '  border-right: 1px solid var(--border);',
+            '  background: var(--sideBar-background, var(--background));',
+            '  display: flex;',
+            '  flex-direction: column;',
+            '  min-height: 0;',
+            '  overflow: hidden;',
+            '}',
+            '.ag-epub-sidebar-collapsed { display: none !important; }',
+            '@media (max-width: 640px) {',
+            '  .ag-epub-sidebar {',
+            '    position: absolute;',
+            '    left: 0; top: 0; bottom: 0;',
+            '    width: 252px; max-width: 82%;',
+            '    z-index: 20;',
+            '    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.25);',
+            '  }',
+            '}',
+            '.ag-epub-sidebar-header {',
+            '  padding: 8px 10px;',
+            '  border-bottom: 1px solid var(--border);',
+            '  font-size: 11.5px;',
+            '  font-weight: 600;',
+            '  color: var(--muted-foreground);',
+            '  display: flex;',
+            '  align-items: center;',
+            '  justify-content: space-between;',
+            '  gap: 6px;',
+            '  flex-shrink: 0;',
+            '}',
+            '.ag-epub-sidebar-back {',
+            '  border: 1px solid var(--border);',
+            '  background: transparent;',
+            '  color: var(--foreground);',
+            '  font-size: 11px;',
+            '  padding: 2px 6px;',
+            '  border-radius: 4px;',
+            '  cursor: pointer;',
+            '}',
+            '.ag-epub-sidebar-back:hover { background: var(--secondary); }',
+            '.ag-epub-sidebar-scroll {',
+            '  flex: 1;',
+            '  overflow-y: auto;',
+            '  padding: 6px;',
+            '  font-size: 12px;',
+            '  line-height: 1.45;',
+            '}',
+            '.ag-epub-toc-item {',
+            '  display: block;',
+            '  width: 100%;',
+            '  text-align: left;',
+            '  border: none;',
+            '  background: transparent;',
+            '  color: var(--foreground);',
+            '  padding: 5px 8px;',
+            '  border-radius: 5px;',
+            '  cursor: pointer;',
+            '  font-size: 12px;',
+            '  line-height: 1.4;',
+            '  word-break: break-word;',
+            '}',
+            '.ag-epub-toc-item:hover { background: var(--secondary); }',
+            '.ag-epub-toc-item-active {',
+            '  background: rgba(168, 85, 247, 0.16);',
+            '  color: #a855f7;',
+            '  font-weight: 600;',
+            '}',
+            '.ag-epub-search-item {',
+            '  display: block;',
+            '  width: 100%;',
+            '  text-align: left;',
+            '  border: 1px solid var(--border);',
+            '  background: transparent;',
+            '  color: var(--foreground);',
+            '  padding: 6px 8px;',
+            '  margin-bottom: 6px;',
+            '  border-radius: 6px;',
+            '  cursor: pointer;',
+            '  font-size: 11.5px;',
+            '  line-height: 1.45;',
+            '}',
+            '.ag-epub-search-item:hover {',
+            '  border-color: rgba(168, 85, 247, 0.55);',
+            '  background: var(--secondary);',
+            '}',
+            '.ag-epub-search-chap {',
+            '  font-weight: 600;',
+            '  font-size: 11px;',
+            '  color: #a855f7;',
+            '  margin-bottom: 2px;',
+            '  overflow: hidden;',
+            '  text-overflow: ellipsis;',
+            '  white-space: nowrap;',
+            '}',
+            '.ag-epub-search-snip { color: var(--muted-foreground); word-break: break-word; }',
+            '.ag-epub-search-snip mark, .ag-epub-hit {',
+            '  background: rgba(250, 204, 21, 0.34);',
+            '  color: inherit;',
+            '  border-radius: 2px;',
+            '  padding: 0 1px;',
+            '}',
+            '.ag-epub-hit-active {',
+            '  background: rgba(249, 115, 22, 0.45);',
+            '  outline: 1px solid #f97316;',
+            '}',
+            '.ag-epub-main {',
+            '  flex: 1;',
+            '  display: flex;',
+            '  flex-direction: column;',
+            '  min-width: 0;',
+            '  min-height: 0;',
+            '}',
+            '.ag-epub-banner {',
+            '  padding: 6px 14px;',
+            '  font-size: 11.5px;',
+            '  color: #d97706;',
+            '  background: rgba(245, 158, 11, 0.12);',
+            '  border-bottom: 1px solid rgba(245, 158, 11, 0.25);',
+            '  flex-shrink: 0;',
+            '}',
+            '.ag-epub-stage {',
+            '  flex: 1;',
+            '  overflow-y: auto;',
+            '  padding: 20px 24px 36px;',
+            '  min-height: 0;',
+            '  user-select: text;',
+            '  -webkit-user-select: text;',
+            '}',
+            '.ag-epub-paper {',
+            '  max-width: 740px;',
+            '  margin: 0 auto;',
+            '  color: var(--foreground);',
+            '  font-size: var(--ag-epub-font-size, 15px);',
+            '  line-height: 1.75;',
+            '  word-break: break-word;',
+            '  overflow-wrap: anywhere;',
+            '}',
+            '.ag-epub-paper h1 { font-size: 1.55em; font-weight: 700; margin: 0.7em 0 0.45em; line-height: 1.35; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }',
+            '.ag-epub-paper h2 { font-size: 1.32em; font-weight: 700; margin: 0.75em 0 0.4em; line-height: 1.38; }',
+            '.ag-epub-paper h3 { font-size: 1.15em; font-weight: 600; margin: 0.65em 0 0.35em; line-height: 1.4; }',
+            '.ag-epub-paper h4, .ag-epub-paper h5, .ag-epub-paper h6 { font-size: 1.02em; font-weight: 600; margin: 0.55em 0 0.3em; line-height: 1.45; }',
+            '.ag-epub-paper p { margin: 0.65em 0; }',
+            '.ag-epub-paper ul, .ag-epub-paper ol { margin: 0.55em 0; padding-left: 1.6em; }',
+            '.ag-epub-paper li { margin: 0.25em 0; }',
+            '.ag-epub-paper blockquote { margin: 0.75em 0; padding: 6px 12px; border-left: 3px solid rgba(168, 85, 247, 0.6); background: rgba(128, 128, 128, 0.08); border-radius: 0 6px 6px 0; color: var(--muted-foreground); }',
+            '.ag-epub-paper pre { margin: 0.75em 0; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border); background: rgba(128, 128, 128, 0.1); overflow-x: auto; font-size: 0.86em; line-height: 1.5; }',
+            '.ag-epub-paper code, .ag-epub-paper kbd, .ag-epub-paper samp { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; padding: 1px 4px; border-radius: 4px; background: rgba(128, 128, 128, 0.12); }',
+            '.ag-epub-paper pre code { padding: 0; background: transparent; font-size: inherit; }',
+            '.ag-epub-table-wrap { overflow-x: auto; max-width: 100%; margin: 0.85em 0; }',
+            '.ag-epub-paper table { width: 100%; border-collapse: collapse; font-size: 0.9em; }',
+            '.ag-epub-paper th, .ag-epub-paper td { border: 1px solid var(--border); padding: 6px 9px; text-align: left; vertical-align: top; }',
+            '.ag-epub-paper th { background: rgba(128, 128, 128, 0.1); font-weight: 600; }',
+            '.ag-epub-paper hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }',
+            '.ag-epub-paper a[data-epub-href] { color: #a855f7; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }',
+            '.ag-epub-paper a[data-epub-href]:hover { opacity: 0.82; }',
+            '.ag-epub-paper img, .ag-epub-img { max-width: 100%; height: auto; border-radius: 4px; margin: 8px auto; display: block; }',
+            '.ag-epub-cover-img { max-height: 74vh; width: auto; object-fit: contain; }',
+            '.ag-epub-img-placeholder { display: inline-block; padding: 2px 8px; margin: 4px 0; border-radius: 4px; border: 1px dashed var(--border); color: var(--muted-foreground); font-size: 12px; }',
+            '.ag-epub-paper figure { margin: 0.9em 0; text-align: center; }',
+            '.ag-epub-paper figcaption { font-size: 0.84em; color: var(--muted-foreground); margin-top: 4px; }',
+            '.ag-epub-paper math { font-size: 1.02em; }',
+            '.ag-epub-paper svg { max-width: 100%; height: auto; }',
+            '.ag-epub-anchor-flash { animation: agEpubFlash 1.4s ease-out; border-radius: 4px; }',
+            '@keyframes agEpubFlash { 0% { background: rgba(168, 85, 247, 0.35); } 100% { background: transparent; } }',
+            '.ag-epub-footer {',
+            '  display: flex;',
+            '  align-items: center;',
+            '  justify-content: space-between;',
+            '  gap: 10px;',
+            '  padding: 8px 14px;',
+            '  border-top: 1px solid var(--border);',
+            '  background: var(--editor-background, var(--background));',
+            '  flex-shrink: 0;',
+            '  font-size: 12px;',
+            '}',
+            '.ag-epub-nav-btn {',
+            '  border: 1px solid var(--border);',
+            '  background: var(--background);',
+            '  color: var(--foreground);',
+            '  border-radius: 6px;',
+            '  padding: 4px 10px;',
+            '  font-size: 12px;',
+            '  cursor: pointer;',
+            '  white-space: nowrap;',
+            '}',
+            '.ag-epub-nav-btn:hover:not(:disabled) { background: var(--secondary); }',
+            '.ag-epub-nav-btn:disabled { opacity: 0.4; cursor: default; }',
+            '.ag-epub-footer-mid {',
+            '  display: flex;',
+            '  align-items: center;',
+            '  gap: 8px;',
+            '  min-width: 0;',
+            '  flex: 1;',
+            '  justify-content: center;',
+            '  color: var(--muted-foreground);',
+            '}',
+            '.ag-epub-chap-select {',
+            '  max-width: 260px;',
+            '  min-width: 90px;',
+            '  border: 1px solid var(--border);',
+            '  background: var(--background);',
+            '  color: var(--foreground);',
+            '  border-radius: 6px;',
+            '  padding: 3px 6px;',
+            '  font-size: 12px;',
+            '}',
+            '.ag-epub-status-msg {',
+            '  font-size: 11px;',
+            '  color: var(--muted-foreground);',
+            '  overflow: hidden;',
+            '  text-overflow: ellipsis;',
+            '  white-space: nowrap;',
+            '  max-width: 220px;',
             '}'
         ].join("\n");
         host.appendChild(styleEl);
@@ -8185,12 +9451,12 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         }
     }
 
-    function buildToolbar(meta, fileUri, extraSummary, onSearchChange) {
+    function buildToolbar(meta, fileUri, extraSummary, onSearchChange, extraControls) {
         const bar = document.createElement("div");
         bar.className = "ag-office-toolbar";
 
         const left = document.createElement("div");
-        left.style.cssText = "display:flex;align-items:center;gap:8px;min-width:0;flex:1;";
+        left.style.cssText = "display:flex;align-items:center;gap:8px;min-width:180px;flex:1 1 180px;overflow:hidden;";
 
         const badge = document.createElement("span");
         const extClean = (meta.ext || "").replace(/^\./, "").toUpperCase() || "FILE";
@@ -8198,31 +9464,40 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         if (extClean.startsWith("XLS")) badgeCls = "ag-office-badge ag-office-badge-xlsx";
         else if (extClean.startsWith("DOC")) badgeCls = "ag-office-badge ag-office-badge-docx";
         else if (extClean.startsWith("PPT")) badgeCls = "ag-office-badge ag-office-badge-pptx";
+        else if (extClean === "EPUB") badgeCls = "ag-office-badge ag-office-badge-epub";
         badge.className = badgeCls;
+        badge.style.flexShrink = "0";
         badge.textContent = extClean;
 
         const title = document.createElement("span");
-        title.style.cssText = "font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        title.style.cssText = "font-weight:600;flex:0 1 auto;min-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
         title.textContent = meta.fileName || "";
         title.title = meta.path || meta.fileName || "";
 
         const summary = document.createElement("span");
-        summary.style.cssText = "color:var(--muted-foreground);font-size:11.5px;white-space:nowrap;";
+        summary.style.cssText = "color:var(--muted-foreground);font-size:11.5px;flex:0 2 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
         const sizeText = formatBytes(meta.fileSize);
         summary.textContent = [sizeText, extraSummary].filter(Boolean).join(" · ");
+        if (summary.textContent) summary.title = summary.textContent;
 
         left.appendChild(badge);
         left.appendChild(title);
         if (summary.textContent) left.appendChild(summary);
 
         const right = document.createElement("div");
-        right.style.cssText = "display:flex;align-items:center;gap:6px;flex-shrink:0;";
+        right.style.cssText = "display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;";
+
+        if (Array.isArray(extraControls)) {
+            for (const ctrl of extraControls) {
+                if (ctrl) right.appendChild(ctrl);
+            }
+        }
 
         if (typeof onSearchChange === "function") {
             const searchInput = document.createElement("input");
             searchInput.type = "search";
             searchInput.className = "ag-office-search";
-            searchInput.placeholder = "筛选内容...";
+            searchInput.placeholder = extClean === "EPUB" ? "搜索全书..." : "筛选内容...";
             searchInput.addEventListener("input", () => onSearchChange(searchInput.value.trim().toLowerCase()));
             right.appendChild(searchInput);
         }
@@ -8253,6 +9528,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         host.textContent = "";
         const root = document.createElement("div");
         root.className = "ag-office-root";
+        root.setAttribute("data-ag-localization-skip", "true");
 
         const sheets = data.sheets || [];
         let activeIdx = 0;
@@ -8455,6 +9731,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         host.textContent = "";
         const root = document.createElement("div");
         root.className = "ag-office-root";
+        root.setAttribute("data-ag-localization-skip", "true");
 
         let filterKeyword = "";
         const scrollWrap = document.createElement("div");
@@ -8575,6 +9852,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         host.textContent = "";
         const root = document.createElement("div");
         root.className = "ag-office-root";
+        root.setAttribute("data-ag-localization-skip", "true");
 
         const slides = data.slides || [];
         const toolbar = buildToolbar(
@@ -8622,6 +9900,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         host.textContent = "";
         const root = document.createElement("div");
         root.className = "ag-office-root";
+        root.setAttribute("data-ag-localization-skip", "true");
 
         const toolbar = buildToolbar(
             { ext: info.ext || "", fileName: info.fileName || "", fileSize: info.fileSize, path: info.path || "" },
@@ -8649,6 +9928,907 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         root.appendChild(toolbar);
         root.appendChild(center);
         host.appendChild(root);
+    }
+
+    const HTML_VOID_TAGS_SET = new Set([
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr"
+    ]);
+    const EPUB_DROP_SUBTREE_TAGS = new Set([
+        "script", "style", "link", "meta", "title", "head", "base",
+        "noscript", "iframe", "frame", "frameset", "object", "embed",
+        "applet", "canvas", "form", "input", "button", "textarea",
+        "select", "option", "optgroup", "template", "annotation", "annotation-xml"
+    ]);
+    const EPUB_ALLOWED_HTML_TAGS = new Set([
+        "h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "section", "article",
+        "main", "header", "footer", "nav", "aside", "blockquote", "pre", "code",
+        "kbd", "samp", "var", "ul", "ol", "li", "dl", "dt", "dd", "table",
+        "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
+        "figure", "figcaption", "hr", "br", "strong", "b", "em", "i", "u", "s",
+        "strike", "del", "ins", "mark", "small", "big", "sub", "sup", "ruby",
+        "rt", "rp", "q", "cite", "abbr", "time", "address", "span", "a", "img",
+        "details", "summary", "center"
+    ]);
+    const EPUB_MATHML_NS = "http://www.w3.org/1998/Math/MathML";
+    const EPUB_SVG_NS = "http://www.w3.org/2000/svg";
+    const EPUB_MATHML_SAFE_ATTRS = new Set([
+        "display", "mathvariant", "displaystyle", "scriptlevel", "stretchy",
+        "symmetric", "fence", "separator", "lspace", "rspace", "minsize",
+        "maxsize", "accent", "accentunder", "columnspan", "rowspan",
+        "columnalign", "rowalign", "linethickness", "notation", "open",
+        "close", "separators", "form"
+    ]);
+    const EPUB_SVG_SAFE_ATTRS = new Set([
+        "viewbox", "width", "height", "preserveaspectratio", "d", "cx", "cy",
+        "r", "rx", "ry", "x", "y", "x1", "y1", "x2", "y2", "points", "fill",
+        "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
+        "stroke-dasharray", "opacity", "fill-opacity", "stroke-opacity",
+        "transform", "text-anchor", "font-size", "font-weight", "dx", "dy",
+        "offset", "stop-color", "stop-opacity"
+    ]);
+    const EPUB_FONT_SIZE_KEY = "ag_ux_epub_font_size";
+
+    function expandXhtmlSelfClosingTags(html) {
+        return String(html || "").replace(
+            /<([a-zA-Z][a-zA-Z0-9:-]*)((?:\s+(?:[^>"'/]|\/(?!>)|"[^"]*"|'[^']*')*)?)\s*\/>/g,
+            (full, tag, attrs) => {
+                if (HTML_VOID_TAGS_SET.has(tag.toLowerCase())) return full;
+                return "<" + tag + (attrs || "") + "></" + tag + ">";
+            }
+        );
+    }
+
+    function posixNormalizePath(raw) {
+        const parts = String(raw || "").replace(/\\/g, "/").split("/");
+        const out = [];
+        for (let i = 0; i < parts.length; i++) {
+            const seg = parts[i];
+            if (!seg || seg === ".") continue;
+            if (seg === "..") {
+                if (out.length > 0) out.pop();
+            } else {
+                out.push(seg);
+            }
+        }
+        return out.join("/");
+    }
+
+    function safeDecodeAnchor(raw) {
+        if (!raw) return "";
+        try {
+            return decodeURIComponent(raw);
+        } catch (_err) {
+            return raw;
+        }
+    }
+
+    function splitHrefTarget(rawHref) {
+        const s = String(rawHref || "").trim();
+        const idx = s.indexOf("#");
+        if (idx < 0) return { pathPart: s, anchor: "" };
+        return { pathPart: s.slice(0, idx), anchor: s.slice(idx + 1) };
+    }
+
+    function clearAndHighlightSearchHits(paperEl, query, targetOrdinal) {
+        if (!paperEl) return { count: 0, targetEl: null };
+        const existingMarks = paperEl.querySelectorAll("mark.ag-epub-hit");
+        for (let i = 0; i < existingMarks.length; i++) {
+            const mark = existingMarks[i];
+            const parent = mark.parentNode;
+            if (!parent) continue;
+            parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+        }
+        paperEl.normalize();
+
+        const q = String(query || "").trim();
+        if (!q) return { count: 0, targetEl: null };
+        const qLower = q.toLowerCase();
+        const qLen = q.length;
+
+        const textNodes = [];
+        const walker = document.createTreeWalker(paperEl, NodeFilter.SHOW_TEXT);
+        let cur = walker.nextNode();
+        while (cur) {
+            if (cur.nodeValue && cur.nodeValue.length >= qLen) {
+                let skip = false;
+                let p = cur.parentNode;
+                while (p && p !== paperEl) {
+                    const tn = p.tagName ? p.tagName.toLowerCase() : "";
+                    if (tn === "svg" || tn === "math" || tn === "annotation" || tn === "annotation-xml") {
+                        skip = true;
+                        break;
+                    }
+                    p = p.parentNode;
+                }
+                if (!skip) textNodes.push(cur);
+            }
+            cur = walker.nextNode();
+        }
+
+        let count = 0;
+        let targetEl = null;
+        for (let i = 0; i < textNodes.length; i++) {
+            const tNode = textNodes[i];
+            const val = tNode.nodeValue || "";
+            const valLower = val.toLowerCase();
+            let idx = valLower.indexOf(qLower, 0);
+            if (idx === -1) continue;
+
+            const frag = document.createDocumentFragment();
+            let pos = 0;
+            while (idx !== -1) {
+                if (idx > pos) {
+                    frag.appendChild(document.createTextNode(val.slice(pos, idx)));
+                }
+                const mark = document.createElement("mark");
+                const isTarget = typeof targetOrdinal === "number" && targetOrdinal >= 0 && count === targetOrdinal;
+                mark.className = isTarget ? "ag-epub-hit ag-epub-hit-active" : "ag-epub-hit";
+                mark.textContent = val.slice(idx, idx + qLen);
+                frag.appendChild(mark);
+                if (isTarget) targetEl = mark;
+                count++;
+                pos = idx + Math.max(1, qLen);
+                idx = valLower.indexOf(qLower, pos);
+            }
+            if (pos < val.length) {
+                frag.appendChild(document.createTextNode(val.slice(pos)));
+            }
+            if (tNode.parentNode) {
+                tNode.parentNode.replaceChild(frag, tNode);
+            }
+        }
+        return { count, targetEl };
+    }
+
+    function renderSanitizedEpubDom(paperEl, rawHtml, chapterBaseDir, anchorMap, onNavigateHref, onBlockedExternal) {
+        paperEl.textContent = "";
+        anchorMap.clear();
+
+        const parser = new DOMParser();
+        let doc = null;
+        try {
+            doc = parser.parseFromString(String(rawHtml || ""), "application/xhtml+xml");
+        } catch (_err) {
+            doc = null;
+        }
+        if (!doc || !doc.documentElement || doc.querySelector("parsererror")) {
+            const cleanHtml = expandXhtmlSelfClosingTags(
+                String(rawHtml || "")
+                    .replace(/^\uFEFF/, "")
+                    .replace(/<\?xml[\s\S]*?\?>/gi, "")
+                    .replace(/<!DOCTYPE[\s\S]*?>/gi, "")
+            );
+            doc = parser.parseFromString(cleanHtml, "text/html");
+        }
+        const sourceRoot = (doc && (doc.body || doc.documentElement)) || null;
+        if (!sourceRoot) return;
+
+        function registerAnchors(targetEl, srcEl, tag) {
+            if (!targetEl || !srcEl || !srcEl.getAttribute) return;
+            const keys = [];
+            const idVal = srcEl.getAttribute("id");
+            if (idVal) keys.push(idVal);
+            if (tag === "a") {
+                const nameVal = srcEl.getAttribute("name");
+                if (nameVal && nameVal !== idVal) keys.push(nameVal);
+            }
+            for (let i = 0; i < keys.length; i++) {
+                const k = String(keys[i] || "").trim();
+                if (!k) continue;
+                if (targetEl.setAttribute && !targetEl.hasAttribute("data-epub-anchor")) {
+                    targetEl.setAttribute("data-epub-anchor", k);
+                }
+                const decoded = safeDecodeAnchor(k);
+                const variants = [k, decoded, k.toLowerCase(), decoded.toLowerCase()];
+                for (let j = 0; j < variants.length; j++) {
+                    if (variants[j] && !anchorMap.has(variants[j])) {
+                        anchorMap.set(variants[j], targetEl);
+                    }
+                }
+            }
+        }
+
+        function getSvgImageDataHref(svgEl) {
+            const imgs = svgEl.getElementsByTagName ? svgEl.getElementsByTagName("image") : [];
+            for (let i = 0; i < imgs.length; i++) {
+                const im = imgs[i];
+                const h = (
+                    im.getAttribute("href")
+                    || im.getAttribute("xlink:href")
+                    || (im.getAttributeNS ? im.getAttributeNS("http://www.w3.org/1999/xlink", "href") : "")
+                    || ""
+                ).trim();
+                if (/^data:image\//i.test(h)) return h;
+            }
+            return "";
+        }
+
+        function cloneNodeSafe(srcNode, mode) {
+            if (!srcNode) return null;
+            if (srcNode.nodeType === 3) {
+                return document.createTextNode(srcNode.nodeValue || "");
+            }
+            if (srcNode.nodeType !== 1) return null;
+
+            const srcEl = srcNode;
+            const tag = (srcEl.localName || srcEl.tagName || "").toLowerCase();
+            if (!tag || EPUB_DROP_SUBTREE_TAGS.has(tag)) return null;
+
+            if (tag === "figcaption" && srcEl.getAttribute("aria-hidden") === "true") {
+                const capTxt = (srcEl.textContent || "").trim();
+                if (
+                    !capTxt
+                    || /^[a-f0-9]{16,}(?:\.[a-z0-9]{1,5})?$/i.test(capTxt)
+                    || /^[^\s\\/]{1,120}\.(?:png|jpe?g|gif|webp|svg|bmp)$/i.test(capTxt)
+                ) {
+                    return null;
+                }
+            }
+
+            if (mode === "math" || tag === "math" || srcEl.namespaceURI === EPUB_MATHML_NS) {
+                const mEl = document.createElementNS(EPUB_MATHML_NS, tag);
+                const attrs = srcEl.attributes || [];
+                for (let i = 0; i < attrs.length; i++) {
+                    const aName = (attrs[i].name || "").toLowerCase();
+                    if (EPUB_MATHML_SAFE_ATTRS.has(aName)) {
+                        mEl.setAttribute(attrs[i].name, attrs[i].value);
+                    }
+                }
+                registerAnchors(mEl, srcEl, tag);
+                for (let c = srcEl.firstChild; c; c = c.nextSibling) {
+                    const child = cloneNodeSafe(c, "math");
+                    if (child) mEl.appendChild(child);
+                }
+                return mEl;
+            }
+
+            if (tag === "svg") {
+                const svgDataImg = getSvgImageDataHref(srcEl);
+                const shapeCount = srcEl.querySelectorAll
+                    ? srcEl.querySelectorAll("path, text, tspan, polyline, polygon, circle, ellipse").length
+                    : 0;
+                if (svgDataImg && shapeCount === 0) {
+                    const imgEl = document.createElement("img");
+                    imgEl.className = "ag-epub-img ag-epub-cover-img";
+                    imgEl.src = svgDataImg;
+                    imgEl.alt = "封面插图";
+                    imgEl.loading = "lazy";
+                    registerAnchors(imgEl, srcEl, "svg");
+                    return imgEl;
+                }
+                const svgOut = document.createElementNS(EPUB_SVG_NS, "svg");
+                const sAttrs = srcEl.attributes || [];
+                for (let i = 0; i < sAttrs.length; i++) {
+                    if (EPUB_SVG_SAFE_ATTRS.has((sAttrs[i].name || "").toLowerCase())) {
+                        svgOut.setAttribute(sAttrs[i].name, sAttrs[i].value);
+                    }
+                }
+                registerAnchors(svgOut, srcEl, "svg");
+                for (let c = srcEl.firstChild; c; c = c.nextSibling) {
+                    const child = cloneNodeSafe(c, "svg");
+                    if (child) svgOut.appendChild(child);
+                }
+                return svgOut;
+            }
+
+            if (mode === "svg" || srcEl.namespaceURI === EPUB_SVG_NS) {
+                if (tag === "foreignobject") return null;
+                const svgTagEl = document.createElementNS(EPUB_SVG_NS, tag);
+                const sAttrs = srcEl.attributes || [];
+                for (let i = 0; i < sAttrs.length; i++) {
+                    if (EPUB_SVG_SAFE_ATTRS.has((sAttrs[i].name || "").toLowerCase())) {
+                        svgTagEl.setAttribute(sAttrs[i].name, sAttrs[i].value);
+                    }
+                }
+                if (tag === "image") {
+                    const href = (
+                        srcEl.getAttribute("href")
+                        || srcEl.getAttribute("xlink:href")
+                        || (srcEl.getAttributeNS ? srcEl.getAttributeNS("http://www.w3.org/1999/xlink", "href") : "")
+                        || ""
+                    ).trim();
+                    if (/^data:image\//i.test(href)) {
+                        svgTagEl.setAttribute("href", href);
+                    } else {
+                        return null;
+                    }
+                }
+                for (let c = srcEl.firstChild; c; c = c.nextSibling) {
+                    const child = cloneNodeSafe(c, "svg");
+                    if (child) svgTagEl.appendChild(child);
+                }
+                return svgTagEl;
+            }
+
+            if (tag === "img") {
+                const imgSrc = (srcEl.getAttribute("src") || "").trim();
+                const altText = (srcEl.getAttribute("alt") || "").trim();
+                if (/^data:image\//i.test(imgSrc)) {
+                    const imgEl = document.createElement("img");
+                    imgEl.className = "ag-epub-img";
+                    imgEl.src = imgSrc;
+                    if (altText) imgEl.alt = altText;
+                    imgEl.loading = "lazy";
+                    registerAnchors(imgEl, srcEl, tag);
+                    return imgEl;
+                }
+                const ph = document.createElement("span");
+                ph.className = "ag-epub-img-placeholder";
+                ph.textContent = altText ? ("[图片: " + altText + "]") : "[图片未内嵌]";
+                registerAnchors(ph, srcEl, tag);
+                return ph;
+            }
+
+            if (EPUB_ALLOWED_HTML_TAGS.has(tag)) {
+                const el = document.createElement(tag);
+                if (tag === "a") {
+                    const rawHref = (srcEl.getAttribute("href") || "").trim();
+                    if (rawHref) {
+                        el.setAttribute("href", "#");
+                        el.setAttribute("data-epub-href", rawHref);
+                        if (/^(https?:|mailto:|tel:)/i.test(rawHref)) {
+                            el.title = "外部链接（阅读器已拦截跳转）: " + rawHref;
+                            el.addEventListener("click", (ev) => {
+                                ev.preventDefault();
+                                ev.stopPropagation();
+                                if (onBlockedExternal) onBlockedExternal(rawHref);
+                            });
+                        } else {
+                            el.addEventListener("click", (ev) => {
+                                ev.preventDefault();
+                                ev.stopPropagation();
+                                if (onNavigateHref) onNavigateHref(rawHref, chapterBaseDir);
+                            });
+                        }
+                    }
+                } else if (tag === "th" || tag === "td") {
+                    const cs = parseInt(srcEl.getAttribute("colspan") || "", 10);
+                    const rs = parseInt(srcEl.getAttribute("rowspan") || "", 10);
+                    if (cs > 1 && cs <= 100) el.setAttribute("colspan", String(cs));
+                    if (rs > 1 && rs <= 100) el.setAttribute("rowspan", String(rs));
+                } else if (tag === "ol") {
+                    const startNum = parseInt(srcEl.getAttribute("start") || "", 10);
+                    if (!isNaN(startNum)) el.setAttribute("start", String(startNum));
+                }
+
+                const titleAttr = srcEl.getAttribute("title");
+                if (titleAttr && !el.title) el.title = titleAttr;
+
+                registerAnchors(el, srcEl, tag);
+
+                for (let c = srcEl.firstChild; c; c = c.nextSibling) {
+                    const child = cloneNodeSafe(c, "html");
+                    if (child) el.appendChild(child);
+                }
+
+                if (tag === "table") {
+                    const wrap = document.createElement("div");
+                    wrap.className = "ag-epub-table-wrap";
+                    wrap.appendChild(el);
+                    return wrap;
+                }
+                return el;
+            }
+
+            const frag = document.createDocumentFragment();
+            if (srcEl.getAttribute("id")) {
+                const pin = document.createElement("span");
+                registerAnchors(pin, srcEl, tag);
+                frag.appendChild(pin);
+            }
+            for (let c = srcEl.firstChild; c; c = c.nextSibling) {
+                const child = cloneNodeSafe(c, "html");
+                if (child) frag.appendChild(child);
+            }
+            return frag.childNodes.length ? frag : null;
+        }
+
+        for (let c = sourceRoot.firstChild; c; c = c.nextSibling) {
+            const safeChild = cloneNodeSafe(c, "html");
+            if (safeChild) paperEl.appendChild(safeChild);
+        }
+    }
+
+    function renderEpubView(host, data, fileUri) {
+        host.textContent = "";
+        const root = document.createElement("div");
+        root.className = "ag-office-root";
+        root.setAttribute("data-ag-localization-skip", "true");
+
+        const spine = Array.isArray(data.spine) ? data.spine : [];
+        const toc = Array.isArray(data.toc) ? data.toc : [];
+        const bookMeta = data.bookMeta || {};
+        const bookTitle = bookMeta.title || data.fileName || "EPUB 电子书";
+
+        const summaryParts = [spine.length + " 章"];
+        if (bookMeta.creator) summaryParts.push(bookMeta.creator);
+
+        let currentSpineIndex = (data.initialChapter && typeof data.initialChapter.spineIndex === "number")
+            ? data.initialChapter.spineIndex
+            : 0;
+        let hasRenderedChapter = false;
+        let chapterLoadSeq = 0;
+        let searchSeq = 0;
+        let searchTimer = null;
+        let activeQuery = "";
+        let activeHighlightOrdinal = -1;
+        let isShowingSearch = false;
+        let sidebarCollapsed = (host.clientWidth > 0 && host.clientWidth < 560) || (window.innerWidth || 900) < 560;
+        let fontSize = 15;
+        try {
+            const savedSize = parseInt(localStorage.getItem(EPUB_FONT_SIZE_KEY) || "", 10);
+            if (!isNaN(savedSize) && savedSize >= 12 && savedSize <= 24) fontSize = savedSize;
+        } catch (_e) {}
+
+        const anchorMap = new Map();
+        const tocButtons = [];
+
+        const tocBtn = document.createElement("button");
+        tocBtn.type = "button";
+        tocBtn.className = "ag-office-btn" + (sidebarCollapsed ? "" : " ag-epub-btn-active");
+        tocBtn.textContent = "☰ 目录";
+        tocBtn.title = "展开或收起目录与全书搜索侧栏";
+
+        const fontGroup = document.createElement("div");
+        fontGroup.className = "ag-epub-font-group";
+        const fontDecBtn = document.createElement("button");
+        fontDecBtn.type = "button";
+        fontDecBtn.className = "ag-epub-font-btn";
+        fontDecBtn.textContent = "A-";
+        fontDecBtn.title = "缩小正文字号";
+        const fontIncBtn = document.createElement("button");
+        fontIncBtn.type = "button";
+        fontIncBtn.className = "ag-epub-font-btn";
+        fontIncBtn.textContent = "A+";
+        fontIncBtn.title = "放大正文字号";
+        fontGroup.appendChild(fontDecBtn);
+        fontGroup.appendChild(fontIncBtn);
+
+        const toolbar = buildToolbar(
+            { ...data, fileName: bookTitle },
+            fileUri,
+            summaryParts.join(" · "),
+            (q) => handleSearchInput(q),
+            [tocBtn, fontGroup]
+        );
+        root.appendChild(toolbar);
+
+        const body = document.createElement("div");
+        body.className = "ag-epub-body";
+
+        const sidebar = document.createElement("aside");
+        sidebar.className = "ag-epub-sidebar" + (sidebarCollapsed ? " ag-epub-sidebar-collapsed" : "");
+        sidebar.setAttribute("data-ag-localization-skip", "true");
+
+        const sidebarHeader = document.createElement("div");
+        sidebarHeader.className = "ag-epub-sidebar-header";
+        const sidebarTitle = document.createElement("span");
+        sidebarTitle.textContent = "目录";
+        const sidebarBackBtn = document.createElement("button");
+        sidebarBackBtn.type = "button";
+        sidebarBackBtn.className = "ag-epub-sidebar-back";
+        sidebarBackBtn.textContent = "返回目录";
+        sidebarBackBtn.style.display = "none";
+        sidebarHeader.appendChild(sidebarTitle);
+        sidebarHeader.appendChild(sidebarBackBtn);
+
+        const sidebarScroll = document.createElement("div");
+        sidebarScroll.className = "ag-epub-sidebar-scroll";
+        sidebar.appendChild(sidebarHeader);
+        sidebar.appendChild(sidebarScroll);
+
+        const mainPane = document.createElement("div");
+        mainPane.className = "ag-epub-main";
+
+        const banner = document.createElement("div");
+        banner.className = "ag-epub-banner";
+        banner.style.display = "none";
+
+        const stage = document.createElement("div");
+        stage.className = "ag-epub-stage";
+
+        const paper = document.createElement("article");
+        paper.className = "ag-epub-paper";
+        paper.setAttribute("data-ag-localization-skip", "true");
+        stage.appendChild(paper);
+
+        const footer = document.createElement("div");
+        footer.className = "ag-epub-footer";
+        const prevBtn = document.createElement("button");
+        prevBtn.type = "button";
+        prevBtn.className = "ag-epub-nav-btn";
+        prevBtn.textContent = "← 上一章";
+        const footerMid = document.createElement("div");
+        footerMid.className = "ag-epub-footer-mid";
+        const chapSelect = document.createElement("select");
+        chapSelect.className = "ag-epub-chap-select";
+        for (let i = 0; i < spine.length; i++) {
+            const opt = document.createElement("option");
+            opt.value = String(i);
+            opt.textContent = (i + 1) + "/" + spine.length + " · " + (spine[i].title || ("第 " + (i + 1) + " 章"));
+            chapSelect.appendChild(opt);
+        }
+        const statusMsg = document.createElement("span");
+        statusMsg.className = "ag-epub-status-msg";
+        footerMid.appendChild(chapSelect);
+        footerMid.appendChild(statusMsg);
+
+        const nextBtn = document.createElement("button");
+        nextBtn.type = "button";
+        nextBtn.className = "ag-epub-nav-btn";
+        nextBtn.textContent = "下一章 →";
+
+        footer.appendChild(prevBtn);
+        footer.appendChild(footerMid);
+        footer.appendChild(nextBtn);
+
+        mainPane.appendChild(banner);
+        mainPane.appendChild(stage);
+        mainPane.appendChild(footer);
+
+        body.appendChild(sidebar);
+        body.appendChild(mainPane);
+        root.appendChild(body);
+        host.appendChild(root);
+
+        function applyFontSize() {
+            paper.style.setProperty("--ag-epub-font-size", fontSize + "px");
+            fontDecBtn.disabled = fontSize <= 12;
+            fontIncBtn.disabled = fontSize >= 24;
+            try { localStorage.setItem(EPUB_FONT_SIZE_KEY, String(fontSize)); } catch (_e) {}
+        }
+        applyFontSize();
+
+        function setSidebarCollapsed(collapsed) {
+            sidebarCollapsed = !!collapsed;
+            sidebar.className = "ag-epub-sidebar" + (sidebarCollapsed ? " ag-epub-sidebar-collapsed" : "");
+            tocBtn.className = "ag-office-btn" + (sidebarCollapsed ? "" : " ag-epub-btn-active");
+        }
+
+        function setTransientStatus(text) {
+            statusMsg.textContent = text || "";
+            if (text) statusMsg.title = text;
+        }
+
+        function updateActiveTocHighlight() {
+            for (let i = 0; i < tocButtons.length; i++) {
+                const entry = tocButtons[i];
+                const isActive = entry.spineIndex === currentSpineIndex;
+                entry.btn.className = "ag-epub-toc-item" + (isActive ? " ag-epub-toc-item-active" : "");
+            }
+        }
+
+        function renderTocList() {
+            isShowingSearch = false;
+            sidebarBackBtn.style.display = "none";
+            sidebarScroll.textContent = "";
+            tocButtons.length = 0;
+
+            function appendTocItem(title, level, spineIdx, anchor) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "ag-epub-toc-item";
+                const padLeft = Math.min(4, Math.max(0, (level || 1) - 1)) * 12 + 8;
+                btn.style.paddingLeft = padLeft + "px";
+                btn.textContent = title || ("章节 " + (spineIdx + 1));
+                btn.title = btn.textContent;
+                btn.addEventListener("click", () => {
+                    if (spineIdx >= 0) {
+                        goToChapter(spineIdx, anchor || "", -1);
+                    }
+                    if ((host.clientWidth || window.innerWidth || 900) <= 640) {
+                        setSidebarCollapsed(true);
+                    }
+                });
+                sidebarScroll.appendChild(btn);
+                tocButtons.push({ btn, spineIndex: spineIdx, anchor: anchor || "" });
+            }
+
+            function walkTocNodes(nodes, depth) {
+                for (let i = 0; i < nodes.length; i++) {
+                    const n = nodes[i];
+                    if (!n) continue;
+                    appendTocItem(n.title, n.level || depth, n.spineIndex, n.anchor);
+                    if (Array.isArray(n.children) && n.children.length > 0) {
+                        walkTocNodes(n.children, depth + 1);
+                    }
+                }
+            }
+
+            if (toc.length > 0) {
+                sidebarTitle.textContent = "目录";
+                walkTocNodes(toc, 1);
+            } else {
+                sidebarTitle.textContent = "章节列表 (" + spine.length + ")";
+                for (let i = 0; i < spine.length; i++) {
+                    appendTocItem(spine[i].title || ("第 " + (i + 1) + " 章"), 1, i, "");
+                }
+            }
+            updateActiveTocHighlight();
+        }
+
+        function scrollToAnchor(anchor) {
+            if (!anchor) return false;
+            const decoded = safeDecodeAnchor(anchor);
+            const target = anchorMap.get(anchor)
+                || anchorMap.get(decoded)
+                || anchorMap.get(anchor.toLowerCase())
+                || anchorMap.get(decoded.toLowerCase());
+            if (!target) return false;
+            try {
+                target.scrollIntoView({ behavior: "smooth", block: "start" });
+                target.classList.remove("ag-epub-anchor-flash");
+                void target.offsetWidth;
+                target.classList.add("ag-epub-anchor-flash");
+                setTimeout(() => {
+                    if (target && target.classList) target.classList.remove("ag-epub-anchor-flash");
+                }, 1500);
+            } catch (_e) {}
+            return true;
+        }
+
+        function handleInternalHref(rawHref, chapterBaseDir) {
+            const { pathPart, anchor } = splitHrefTarget(rawHref);
+            if (!pathPart) {
+                if (anchor) {
+                    if (!scrollToAnchor(anchor)) {
+                        setTransientStatus("未找到页内锚点 #" + safeDecodeAnchor(anchor));
+                    }
+                } else {
+                    stage.scrollTop = 0;
+                }
+                return;
+            }
+            const base = chapterBaseDir || (spine[currentSpineIndex] && spine[currentSpineIndex].baseDir) || "";
+            const resolved = posixNormalizePath(base ? (base + "/" + pathPart) : pathPart);
+            const resolvedDec = safeDecodeAnchor(resolved);
+            const resolvedLower = resolvedDec.toLowerCase();
+
+            let matchedIdx = -1;
+            for (let i = 0; i < spine.length; i++) {
+                const zp = spine[i].zipPath || "";
+                const zpDec = safeDecodeAnchor(zp);
+                if (zp === resolved || zpDec === resolvedDec || zpDec.toLowerCase() === resolvedLower) {
+                    matchedIdx = i;
+                    break;
+                }
+            }
+            if (matchedIdx < 0 && pathPart.indexOf("/") < 0) {
+                const fileOnlyLower = safeDecodeAnchor(pathPart).toLowerCase();
+                for (let i = 0; i < spine.length; i++) {
+                    const zp = spine[i].zipPath || "";
+                    const tail = safeDecodeAnchor(zp.split("/").pop() || "").toLowerCase();
+                    if (tail && tail === fileOnlyLower) {
+                        matchedIdx = i;
+                        break;
+                    }
+                }
+            }
+            if (matchedIdx >= 0) {
+                goToChapter(matchedIdx, anchor, -1);
+            } else if (anchor && scrollToAnchor(anchor)) {
+                return;
+            } else {
+                setTransientStatus("未定位到目标章节: " + pathPart);
+            }
+        }
+
+        function handleExternalBlocked(rawHref) {
+            setTransientStatus("已拦截外部跳转: " + rawHref);
+        }
+
+        function applyChapterPayload(chapRes, targetAnchor, highlightOrdinal) {
+            currentSpineIndex = chapRes.spineIndex;
+            hasRenderedChapter = true;
+            chapSelect.value = String(currentSpineIndex);
+            prevBtn.disabled = currentSpineIndex <= 0;
+            nextBtn.disabled = currentSpineIndex >= spine.length - 1;
+            setTransientStatus("");
+
+            if (chapRes.truncatedImages) {
+                banner.textContent = "提示：本章包含超大图片资源，已跳过超限图片以保障侧边栏流畅阅读。";
+                banner.style.display = "";
+            } else {
+                banner.style.display = "none";
+            }
+
+            renderSanitizedEpubDom(
+                paper,
+                chapRes.html || "",
+                chapRes.baseDir || "",
+                anchorMap,
+                handleInternalHref,
+                handleExternalBlocked
+            );
+            updateActiveTocHighlight();
+
+            const hl = clearAndHighlightSearchHits(paper, activeQuery, highlightOrdinal);
+            if (targetAnchor) {
+                if (!scrollToAnchor(targetAnchor)) stage.scrollTop = 0;
+            } else if (typeof highlightOrdinal === "number" && highlightOrdinal >= 0 && hl.targetEl) {
+                try { hl.targetEl.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_e) {}
+            } else {
+                stage.scrollTop = 0;
+            }
+        }
+
+        async function goToChapter(targetSpineIndex, targetAnchor, highlightOrdinal) {
+            if (targetSpineIndex < 0 || targetSpineIndex >= spine.length) return;
+            activeHighlightOrdinal = (typeof highlightOrdinal === "number") ? highlightOrdinal : -1;
+
+            if (hasRenderedChapter && targetSpineIndex === currentSpineIndex) {
+                const hl = clearAndHighlightSearchHits(paper, activeQuery, activeHighlightOrdinal);
+                if (targetAnchor) {
+                    scrollToAnchor(targetAnchor);
+                } else if (activeHighlightOrdinal >= 0 && hl.targetEl) {
+                    try { hl.targetEl.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_e) {}
+                }
+                return;
+            }
+
+            const seq = ++chapterLoadSeq;
+            setTransientStatus("正在加载第 " + (targetSpineIndex + 1) + " 章...");
+            try {
+                const res = await ipcInvoke("ag-ux:epub-read-chapter", fileUri, targetSpineIndex);
+                if (seq !== chapterLoadSeq || viewerHostMismatch()) return;
+                if (!res || !res.ok) {
+                    setTransientStatus("章节加载失败");
+                    paper.textContent = "";
+                    const errBox = document.createElement("p");
+                    errBox.style.color = "var(--muted-foreground)";
+                    errBox.textContent = "读取章节失败：" + ((res && res.error) || "未知错误");
+                    paper.appendChild(errBox);
+                    return;
+                }
+                applyChapterPayload(res, targetAnchor || "", activeHighlightOrdinal);
+            } catch (err) {
+                if (seq !== chapterLoadSeq || viewerHostMismatch()) return;
+                setTransientStatus("章节加载异常: " + (err && err.message ? err.message : String(err)));
+            }
+        }
+
+        function viewerHostMismatch() {
+            return host.getAttribute("data-file-uri") !== fileUri;
+        }
+
+        function renderSearchResults(q, res) {
+            isShowingSearch = true;
+            sidebarBackBtn.style.display = "";
+            sidebarScroll.textContent = "";
+
+            if (!res || !res.ok) {
+                sidebarTitle.textContent = "搜索失败";
+                const msg = document.createElement("div");
+                msg.style.cssText = "padding:10px;color:var(--muted-foreground);font-size:12px;";
+                msg.textContent = (res && res.error) || "搜索出错";
+                sidebarScroll.appendChild(msg);
+                return;
+            }
+
+            sidebarTitle.textContent = "搜索 (" + res.totalHits + ")" + (res.truncated ? "+" : "");
+            if (!res.results || res.results.length === 0) {
+                const empty = document.createElement("div");
+                empty.style.cssText = "padding:12px 8px;color:var(--muted-foreground);font-size:12px;";
+                empty.textContent = "未在全书正文中找到 \"" + q + "\"";
+                sidebarScroll.appendChild(empty);
+                return;
+            }
+
+            if (res.truncated) {
+                const tip = document.createElement("div");
+                tip.style.cssText = "padding:4px 6px 8px;color:var(--muted-foreground);font-size:11px;";
+                tip.textContent = "共命中 " + res.totalHits + " 处，展示前 " + res.results.length + " 条：";
+                sidebarScroll.appendChild(tip);
+            }
+
+            for (let i = 0; i < res.results.length; i++) {
+                const item = res.results[i];
+                const card = document.createElement("button");
+                card.type = "button";
+                card.className = "ag-epub-search-item";
+
+                const chapLine = document.createElement("div");
+                chapLine.className = "ag-epub-search-chap";
+                chapLine.textContent = (item.spineIndex + 1) + ". " + (item.chapterTitle || "正文");
+
+                const snip = document.createElement("div");
+                snip.className = "ag-epub-search-snip";
+                if (item.pre) snip.appendChild(document.createTextNode(item.pre));
+                const mEl = document.createElement("mark");
+                mEl.textContent = item.match || q;
+                snip.appendChild(mEl);
+                if (item.post) snip.appendChild(document.createTextNode(item.post));
+
+                card.appendChild(chapLine);
+                card.appendChild(snip);
+                card.addEventListener("click", () => {
+                    goToChapter(item.spineIndex, "", item.matchOrdinal);
+                    if ((host.clientWidth || window.innerWidth || 900) <= 640) {
+                        setSidebarCollapsed(true);
+                    }
+                });
+                sidebarScroll.appendChild(card);
+            }
+        }
+
+        function handleSearchInput(rawQ) {
+            if (searchTimer) {
+                clearTimeout(searchTimer);
+                searchTimer = null;
+            }
+            activeQuery = String(rawQ || "").trim();
+            activeHighlightOrdinal = -1;
+            clearAndHighlightSearchHits(paper, activeQuery, -1);
+
+            if (!activeQuery) {
+                searchSeq++;
+                if (isShowingSearch) renderTocList();
+                return;
+            }
+
+            const mySeq = ++searchSeq;
+            setSidebarCollapsed(false);
+            isShowingSearch = true;
+            sidebarBackBtn.style.display = "";
+            sidebarTitle.textContent = "搜索中...";
+            sidebarScroll.textContent = "";
+            const loadingHint = document.createElement("div");
+            loadingHint.style.cssText = "padding:10px;color:var(--muted-foreground);font-size:12px;";
+            loadingHint.textContent = "正在检索全书章节...";
+            sidebarScroll.appendChild(loadingHint);
+
+            searchTimer = setTimeout(async () => {
+                try {
+                    const res = await ipcInvoke("ag-ux:epub-search", fileUri, activeQuery);
+                    if (mySeq !== searchSeq || viewerHostMismatch()) return;
+                    renderSearchResults(activeQuery, res);
+                } catch (err) {
+                    if (mySeq !== searchSeq || viewerHostMismatch()) return;
+                    renderSearchResults(activeQuery, { ok: false, error: err && err.message ? err.message : String(err) });
+                }
+            }, 250);
+        }
+
+        tocBtn.addEventListener("click", () => setSidebarCollapsed(!sidebarCollapsed));
+        sidebarBackBtn.addEventListener("click", () => renderTocList());
+        fontDecBtn.addEventListener("click", () => {
+            if (fontSize > 12) {
+                fontSize -= 1;
+                applyFontSize();
+            }
+        });
+        fontIncBtn.addEventListener("click", () => {
+            if (fontSize < 24) {
+                fontSize += 1;
+                applyFontSize();
+            }
+        });
+        prevBtn.addEventListener("click", () => {
+            if (currentSpineIndex > 0) goToChapter(currentSpineIndex - 1, "", -1);
+        });
+        nextBtn.addEventListener("click", () => {
+            if (currentSpineIndex < spine.length - 1) goToChapter(currentSpineIndex + 1, "", -1);
+        });
+        chapSelect.addEventListener("change", () => {
+            const idx = parseInt(chapSelect.value, 10);
+            if (!isNaN(idx)) goToChapter(idx, "", -1);
+        });
+
+        renderTocList();
+
+        if (data.initialChapter && data.initialChapter.ok) {
+            applyChapterPayload(data.initialChapter, "", -1);
+        } else if (spine.length > 0) {
+            goToChapter(0, "", -1);
+        } else {
+            prevBtn.disabled = true;
+            nextBtn.disabled = true;
+            const empty = document.createElement("p");
+            empty.style.color = "var(--muted-foreground)";
+            empty.textContent = "未找到可阅读的 EPUB 章节。";
+            paper.appendChild(empty);
+        }
     }
 
     async function loadOfficePreviewIntoHost(viewerHost, fileUri) {
@@ -8681,6 +10861,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             if (res.kind === "xlsx") renderXlsxView(viewerHost, res, fileUri);
             else if (res.kind === "docx") renderDocxView(viewerHost, res, fileUri);
             else if (res.kind === "pptx") renderPptxView(viewerHost, res, fileUri);
+            else if (res.kind === "epub") renderEpubView(viewerHost, res, fileUri);
             else renderExternalFallback(viewerHost, res, fileUri);
         } catch (err) {
             if (viewerHost.getAttribute("data-file-uri") !== fileUri) return;
@@ -9834,7 +12015,7 @@ ${translationJs}
     // 4. dist/updater.js
     const updaterBuf = AsarArchive.readFile(sourceAsar, "dist/updater.js");
     if (updaterBuf) {
-        console.log(`[修改] 正在向 updater.js 注入更新弹窗汉化...`);
+        console.log(`[修改] 正在向 updater.js 注入更新弹窗及菜单状态汉化...`);
         let updaterContent = updaterBuf.toString('utf-8');
         const targetOptions = `                title: 'Check for Updates',
                 message: 'No updates available',
@@ -9843,9 +12024,14 @@ ${translationJs}
                 message: '暂无可用更新',
                 buttons: ['确定'],`;
 
-        updaterContent = updaterContent.replace(targetOptions, replacementOptions);
+        updaterContent = updaterContent
+            .replace(targetOptions, replacementOptions)
+            .replace('MenuUpdateStep["CheckForUpdates"] = "Check for Updates";', 'MenuUpdateStep["CheckForUpdates"] = "检查更新";')
+            .replace('MenuUpdateStep["CheckingForUpdates"] = "Checking for Updates...";', 'MenuUpdateStep["CheckingForUpdates"] = "正在检查更新...";')
+            .replace('MenuUpdateStep["DownloadingUpdate"] = "Downloading Update...";', 'MenuUpdateStep["DownloadingUpdate"] = "正在下载更新...";')
+            .replace('MenuUpdateStep["RestartToUpdate"] = "Restart to Update";', 'MenuUpdateStep["RestartToUpdate"] = "重启以更新";');
         filePatches["dist/updater.js"] = updaterContent;
-        console.log(`[修改] 更新弹窗汉化注入成功！`);
+        console.log(`[修改] 更新弹窗及菜单状态汉化注入成功！`);
     }
 
     // 5. dist/provisionSplash.js
@@ -10023,7 +12209,11 @@ ${translationJs}
         "Save Video": "保存视频",
         "Close Tab": "关闭标签页",
         "Close Other Tabs": "关闭其他标签页",
+        "Close Tabs to the Left": "关闭左侧标签页",
         "Close Tabs to the Right": "关闭右侧标签页",
+        "Pin Tab": "置顶标签页",
+        "Unpin Tab": "取消置顶标签页",
+        "Keep Open": "保持打开",
         "Back": "后退",
         "Forward": "前进",
         "Reload": "重新加载",

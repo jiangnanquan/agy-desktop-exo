@@ -4,7 +4,7 @@
 
 ## 1. 当前目标与权威基准
 
-- **当前版本**：当前汉化发布版本为 **v2.32.1**，匹配官方 **Antigravity v2.32.1** 客户端。当前版本独立词典固定为 `dicts/release.json`（文件名不随版本变化，版本号仅在本文件与 `README.md` 中维护）；请始终保持版本号、发布日期与 `README.md` 一致。
+- **当前版本**：当前汉化发布版本为 **v2.32.2**，匹配官方 **Antigravity v2.32.2** 客户端（同步融合上游 v2.33.0 纯汉化词典与引擎修复）。当前版本独立词典固定为 `dicts/release.json`（文件名不随版本变化，版本号仅在本文件与 `README.md` 中维护）；请始终保持版本号、发布日期与 `README.md` 一致。
 - **权威依据**：以仓库实际文件与可执行行为为准。进行版本升级时，直接在 `dicts/release.json` 上审慎增删迁移词条，严禁按版本号新建或重命名字典文件；该文件名须在字母序上排在其他分包字典之后（引擎按文件名排序加载，后加载者覆盖同名键）。保持面向用户的安装、还原、支持平台与路径说明与引擎逻辑严格一致。
 
 ## 2. 词典归属与语义规则
@@ -49,11 +49,14 @@
 1. **修改前**：执行 `git status --short --untracked-files=all`，确认工作区状态，严格保留用户无关修改。
 2. **编码实施**：遵循最小侵入性原则，严禁无故重排字典或格式化无关文件。
 3. **轻量分级语法自检**：
-   - **仅修改字典（`dicts/*.json`）**：**仅需**执行轻量 JSON 校验，**严禁引入或执行 `localization_engine.js`**，防止意外触发杀进程逻辑：
+   - **仅修改字典（`dicts/*.json`）**：**仅需**执行轻量 JSON 校验与规范质检，**严禁引入或执行 `localization_engine.js`**，防止意外触发杀进程逻辑：
      ```bash
-     node -e "require('fs').readdirSync('dicts').filter(f=>f.endsWith('.json')).forEach(f=>JSON.parse(require('fs').readFileSync('dicts/'+f,'utf8'))); console.log('Dicts valid!');"
+     node scripts/ag_audit.js dicts
      ```
-   - **修改引擎（`localization_engine.js`）**：在交付前须使用独立沙箱只读测试 `generateJs()` 编译合法性，且严禁触发引擎底部的 `main()` 安装函数。
+   - **修改引擎（`localization_engine.js`）**：在交付前须使用独立沙箱只读测试 `generateJs()` 编译合法性及桌面壳锚点体检，且严禁触发引擎底部的 `main()` 安装函数：
+     ```bash
+     node scripts/ag_audit.js check
+     ```
 4. **修改后审查**：使用 `git diff` 仔细审查改动，确认无非预期修改。
 
 ## 6. 安装与 Git 平台底线
