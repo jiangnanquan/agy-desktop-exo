@@ -1,4 +1,4 @@
-# Antigravity Desktop Simplified Chinese Localization Engine (Windows / macOS / Linux)
+# agy-desktop-exo — Antigravity Desktop UX Enhancements & Simplified Chinese Localization
 
 **English** | [简体中文](README_ZH.md)
 
@@ -73,8 +73,8 @@ Built on top of [`Silas-02/antigravity-desktop-cn`](https://github.com/Silas-02/
 ### 1. Download or Clone
 
 ```bash
-git clone https://github.com/jiangnanquan/antigravity-desktop-cn.git
-cd antigravity-desktop-cn
+git clone https://github.com/jiangnanquan/agy-desktop-exo.git
+cd agy-desktop-exo
 ```
 
 Or click **Code → Download ZIP** and extract it to any local directory.
@@ -151,7 +151,7 @@ Install Node.js LTS:
 Hold **Control** + click `双击安装中文汉化.command` → **Open**, or clear the quarantine attribute in Terminal:
 
 ```bash
-cd /path/to/antigravity-desktop-cn
+cd /path/to/agy-desktop-exo
 xattr -d -r com.apple.quarantine .
 chmod +x *.command *.sh
 ```

@@ -1,4 +1,4 @@
-# Antigravity 中文汉化引擎（Windows / macOS / Linux）
+# agy-desktop-exo — Antigravity 桌面端 UX 增强与中文汉化引擎（Windows / macOS / Linux）
 
 [English](README.md) | **简体中文**
 
@@ -77,8 +77,8 @@
 * **方法 B：通过 Git 命令行克隆（开发者推荐 💻）**
 
   ```bash
-  git clone https://github.com/jiangnanquan/antigravity-desktop-cn.git
-  cd antigravity-desktop-cn
+  git clone https://github.com/jiangnanquan/agy-desktop-exo.git
+  cd agy-desktop-exo
   ```
 
 ---
@@ -139,7 +139,7 @@
 
 > [!TIP]
 > - **推荐做法**：在 Antigravity 中点击 **“打开文件夹”** 将本汉化包目录作为工作区打开后与 AI 对话，AI 会自动读取 `AGENTS.md` 规范并精准定位词典。
-> - **免开项目**：若在其他项目工作区中提问，请在提示词中附带汉化包路径，例如：*“我的汉化包在 `~/Downloads/antigravity-desktop-cn`，请先阅读其 `AGENTS.md` 再根据截图补充词典。”*
+> - **免开项目**：若在其他项目工作区中提问，请在提示词中附带汉化包路径，例如：*“我的汉化包在 `~/Downloads/agy-desktop-exo`，请先阅读其 `AGENTS.md` 再根据截图补充词典。”*
 
 ### 📋 常用提示词（Prompt）模板
 
@@ -299,7 +299,7 @@ node .agents/skills/sync-marketplace-plugins/scripts/diff_marketplace_plugins.js
     打开 Mac 的“终端（Terminal）”，进入解压后的汉化包文件夹，执行以下命令彻底清除网络隔离标记：
     ```bash
     # 1. 切换到解压目录 (或者直接在终端输入 cd 后，将 Finder 中的该文件夹拖入终端)
-    cd /path/to/antigravity-desktop-cn
+    cd /path/to/agy-desktop-exo
 
     # 2. 递归移除当前目录下所有文件的隔离标记
     xattr -d -r com.apple.quarantine .
