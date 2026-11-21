@@ -44,6 +44,15 @@ function getOptionValue(name, defaultValue) {
 
 const BRAND_TITLE_MODE = BRAND_TITLE_ALIASES[String(getOptionValue('--brand-title', 'english')).toLowerCase()] || 'english';
 
+function normalizeUiLang(rawVal) {
+    const cleaned = String(rawVal === undefined || rawVal === null ? 'zh' : rawVal).trim().toLowerCase();
+    if (cleaned === 'en' || cleaned === 'english') return 'en';
+    return 'zh';
+}
+
+const UI_LANG = normalizeUiLang(getOptionValue('--lang', 'zh'));
+const SKIP_SIGN_FLAG = process.argv.slice(2).includes('--skip-sign');
+
 const SIGNATURE_START = "'__ANTIGRAVITY_CHINESE_LOCALIZATION_START__';";
 const SIGNATURE_END = "'__ANTIGRAVITY_CHINESE_LOCALIZATION_END__';";
 const MENU_SIGNATURE_START = "'__ANTIGRAVITY_NATIVE_MENU_TRANSLATION_START__';";
@@ -102,21 +111,36 @@ function loadDictionary() {
     return totalMap;
 }
 
-function generateJs() {
-    const fullDict = loadDictionary();
-    const longEntries = Object.entries(fullDict).filter(([k]) => k.length > 20).sort((a, b) => b[0].length - a[0].length);
+function generateJs(uiLang = UI_LANG) {
+    const activeLang = normalizeUiLang(uiLang);
+    const fullDict = activeLang === 'zh' ? loadDictionary() : {};
+    const longEntries = activeLang === 'zh'
+        ? Object.entries(fullDict).filter(([k]) => k.length > 20).sort((a, b) => b[0].length - a[0].length)
+        : [];
 
     const dictJson = JSON.stringify(fullDict, null, 4);
     const entriesJson = JSON.stringify(longEntries);
 
     const jsSource = `${SIGNATURE_START}
 (() => {
+    const AG_EXO_LANG = UI_LANG_PLACEHOLDER;
+    const ENABLE_ZH_TRANSLATION = AG_EXO_LANG === 'zh';
+    const applyExoLangDataset = () => {
+        try {
+            if (typeof document !== 'undefined' && document.documentElement) {
+                if (document.documentElement.dataset.agExoLang !== AG_EXO_LANG) {
+                    document.documentElement.dataset.agExoLang = AG_EXO_LANG;
+                }
+            }
+        } catch (e) {}
+    };
+
     const isAllowedLocalizationContext = () => {
         try {
             const loc = globalThis.location;
             if (!loc) return false;
             const protocol = typeof loc.protocol === 'string' ? loc.protocol.toLowerCase() : '';
-            if (protocol === 'plugin:') return true;
+            if (protocol === 'plugin:') return ENABLE_ZH_TRANSLATION;
             if (protocol === 'http:' || protocol === 'https:') {
                 const host = typeof loc.hostname === 'string' ? loc.hostname.toLowerCase() : '';
                 return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1' || host.endsWith('.localhost');
@@ -127,6 +151,7 @@ function generateJs() {
         }
     };
     if (!isAllowedLocalizationContext()) return;
+    applyExoLangDataset();
 
     const map = new Map(Object.entries(DICT_PLACEHOLDER));
     const lowerMap = new Map();
@@ -6147,6 +6172,7 @@ function getDynamicProductUiTranslation(value, node = null) {
     }
 
     function translateElementAttributes(node) {
+        if (!ENABLE_ZH_TRANSLATION) return;
         try {
             if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
             if (isSwarmBoardDocument()) {
@@ -6302,6 +6328,7 @@ function getDynamicProductUiTranslation(value, node = null) {
     }
 
     function translateNode(node, parentContainersScanned = false, visitedElements = null) {
+        if (!ENABLE_ZH_TRANSLATION) return;
         try {
             if (!node) return;
 
@@ -7163,7 +7190,7 @@ function getDynamicProductUiTranslation(value, node = null) {
             const labelEl = document.createElement("span");
             labelEl.className = "text-sm";
             labelEl.id = "ag-ux-compact-wide-label";
-            labelEl.textContent = "紧凑加宽布局";
+            labelEl.textContent = AG_EXO_LANG === 'en' ? "Compact Wide Layout" : "紧凑加宽布局";
 
             const badgeEl = document.createElement("span");
             badgeEl.className = "text-[10px] font-semibold leading-none bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded-full select-none border border-border";
@@ -7174,7 +7201,9 @@ function getDynamicProductUiTranslation(value, node = null) {
 
             const descEl = document.createElement("span");
             descEl.className = "text-xs text-muted-foreground whitespace-pre-wrap";
-            descEl.textContent = "固定 94% 黄金对话宽度，并收紧消息与段落垂直间距（即时生效）。";
+            descEl.textContent = AG_EXO_LANG === 'en'
+                ? "Lock conversation width to 94% and tighten vertical spacing between messages and paragraphs (applies immediately)."
+                : "固定 94% 黄金对话宽度，并收紧消息与段落垂直间距（即时生效）。";
 
             leftCol.appendChild(labelWrap);
             leftCol.appendChild(descEl);
@@ -7212,23 +7241,26 @@ function getDynamicProductUiTranslation(value, node = null) {
 
 
     if (!isPluginSubframe) {
+        applyExoLangDataset();
         applyCompactWideAttribute(isCompactWideEnabled());
         ensureCompactWideStyle();
     }
 
     const observer = new MutationObserver(mutations => {
         try {
-            const visitedElements = new WeakSet();
+            const visitedElements = ENABLE_ZH_TRANSLATION ? new WeakSet() : null;
             let hasAddedElements = false;
             for (const m of mutations) {
                 if (m.type === 'childList') {
                     for (const n of m.addedNodes) {
                         if (n.nodeType === 1) hasAddedElements = true;
-                        translateNode(n, false, visitedElements);
+                        if (ENABLE_ZH_TRANSLATION) {
+                            translateNode(n, false, visitedElements);
+                        }
                     }
-                } else if (m.type === 'characterData') {
+                } else if (ENABLE_ZH_TRANSLATION && m.type === 'characterData') {
                     translateNode(m.target, false, visitedElements);
-                } else if (m.type === 'attributes') {
+                } else if (ENABLE_ZH_TRANSLATION && m.type === 'attributes') {
                     translateElementAttributes(m.target);
                 }
             }
@@ -7243,16 +7275,25 @@ function getDynamicProductUiTranslation(value, node = null) {
         } catch (e) {}
     });
 
-    const obsOpts = {
-        childList: true,
-        subtree: true,
-        characterData: true,
-        attributes: true,
-        attributeFilter: ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip', 'data-uri', 'href']
-    };
+    const obsOpts = ENABLE_ZH_TRANSLATION
+        ? {
+            childList: true,
+            subtree: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ['placeholder', 'aria-placeholder', 'data-placeholder', 'title', 'aria-label', 'data-tooltip', 'data-uri', 'href']
+        }
+        : {
+            childList: true,
+            subtree: true,
+            characterData: false,
+            attributes: true,
+            attributeFilter: ['data-uri', 'href']
+        };
 
     let engineStarted = false;
     const startEngine = () => {
+        applyExoLangDataset();
         if (!isPluginSubframe) {
             applyCompactWideAttribute(isCompactWideEnabled());
             ensureCompactWideStyle();
@@ -7262,7 +7303,9 @@ function getDynamicProductUiTranslation(value, node = null) {
 
         engineStarted = true;
         try {
-            translateNode(target);
+            if (ENABLE_ZH_TRANSLATION) {
+                translateNode(target);
+            }
             if (!isPluginSubframe) {
                 scheduleMountCompactWideSetting();
                 if (typeof globalThis.__agScheduleOfficePreviewSync === "function") {
@@ -7364,14 +7407,18 @@ function getDynamicProductUiTranslation(value, node = null) {
         });
     }
 
-    globalThis.__agTranslateContextMenuItems = translateContextMenuItems;
+    if (ENABLE_ZH_TRANSLATION) {
+        globalThis.__agTranslateContextMenuItems = translateContextMenuItems;
 
-    const origAttachShadow = Element.prototype.attachShadow;
-    Element.prototype.attachShadow = function() {
-        const sr = origAttachShadow.apply(this, arguments);
-        try { observer.observe(sr, obsOpts); } catch(e) {}
-        return sr;
-    };
+        const origAttachShadow = Element.prototype.attachShadow;
+        Element.prototype.attachShadow = function() {
+            const sr = origAttachShadow.apply(this, arguments);
+            try { observer.observe(sr, obsOpts); } catch(e) {}
+            return sr;
+        };
+    } else {
+        globalThis.__agTranslateContextMenuItems = items => items;
+    }
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', startEngine);
@@ -7383,6 +7430,7 @@ function getDynamicProductUiTranslation(value, node = null) {
 ${SIGNATURE_END}`;
 
     const baseJs = jsSource
+        .replace("UI_LANG_PLACEHOLDER", () => JSON.stringify(activeLang))
         .replace("DICT_PLACEHOLDER", () => dictJson)
         .replace("REPLACEMENT_ENTRIES_PLACEHOLDER", () => entriesJson);
 
@@ -7396,7 +7444,7 @@ ${SIGNATURE_END}`;
         "    const invokeFn = (typeof electron_1 !== 'undefined' && electron_1 && electron_1.ipcRenderer && typeof electron_1.ipcRenderer.invoke === 'function')",
         "      ? electron_1.ipcRenderer.invoke.bind(electron_1.ipcRenderer)",
         "      : null;",
-        "    try { (" + __agSetupOfficePreviewRenderer.toString() + ")(invokeFn); } catch (e) { try { console.error('[AG-UX Office]', e); } catch (_) {} }",
+        "    try { (" + __agSetupOfficePreviewRenderer.toString() + ")(invokeFn, " + JSON.stringify(activeLang) + "); } catch (e) { try { console.error('[AG-UX Office]', e); } catch (_) {} }",
         "  } catch (e) { try { console.error('[AG-UX Init]', e); } catch (_) {} }",
         "})();"
     ].join("\n");
@@ -7408,7 +7456,8 @@ ${SIGNATURE_END}`;
     return baseJs;
 }
 
-function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
+function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1, uiLang) {
+    const isEn = String(uiLang || "").toLowerCase() === "en";
     const fsSync = require("fs");
     const pathMod = require("path");
     const zlibMod = require("zlib");
@@ -7528,7 +7577,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
     function openZipBuffer(buf) {
         const minEocd = 22;
         if (!Buffer.isBuffer(buf) || buf.length < minEocd) {
-            throw new Error("文件不是有效的 ZIP/OOXML 容器");
+            throw new Error(isEn ? "Not a valid ZIP/OOXML container" : "文件不是有效的 ZIP/OOXML 容器");
         }
         const maxSearch = Math.min(buf.length, 65558);
         let eocdPos = -1;
@@ -7539,12 +7588,12 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             }
         }
         if (eocdPos === -1) {
-            throw new Error("未找到 ZIP 目录索引（可能是加密文档或旧版二进制格式）");
+            throw new Error(isEn ? "ZIP central directory not found (encrypted or legacy binary format)" : "未找到 ZIP 目录索引（可能是加密文档或旧版二进制格式）");
         }
         const cdSize = buf.readUInt32LE(eocdPos + 12);
         const cdOffset = buf.readUInt32LE(eocdPos + 16);
         if (cdOffset === 0xffffffff || cdOffset + cdSize > buf.length) {
-            throw new Error("不支持 ZIP64 超大归档或归档已损坏");
+            throw new Error(isEn ? "ZIP64 archive is unsupported or corrupted" : "不支持 ZIP64 超大归档或归档已损坏");
         }
 
         const entries = new Map();
@@ -7581,18 +7630,18 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             const entry = entries.get(actualName);
             if (!entry) return null;
             if (entry.uncompSize > MAX_ZIP_ENTRY_BYTES) {
-                throw new Error("单个归档条目体积超过安全预览上限 (48MB)");
+                throw new Error(isEn ? "Archive entry exceeds safe preview limit (48MB)" : "单个归档条目体积超过安全预览上限 (48MB)");
             }
             const lh = entry.localHeaderOffset;
             if (lh + 30 > buf.length || buf.readUInt32LE(lh) !== 0x04034b50) {
-                throw new Error("ZIP 本地文件头损坏: " + actualName);
+                throw new Error((isEn ? "Corrupted ZIP local file header: " : "ZIP 本地文件头损坏: ") + actualName);
             }
             const lfNameLen = buf.readUInt16LE(lh + 26);
             const lfExtraLen = buf.readUInt16LE(lh + 28);
             const dataStart = lh + 30 + lfNameLen + lfExtraLen;
             const dataEnd = dataStart + entry.compSize;
             if (dataEnd > buf.length) {
-                throw new Error("ZIP 数据区越界: " + actualName);
+                throw new Error((isEn ? "ZIP entry out of bounds: " : "ZIP 数据区越界: ") + actualName);
             }
             const slice = buf.subarray(dataStart, dataEnd);
             if (entry.compMethod === 0) {
@@ -7601,7 +7650,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             if (entry.compMethod === 8) {
                 return zlibMod.inflateRawSync(slice, { maxOutputLength: MAX_ZIP_ENTRY_BYTES });
             }
-            throw new Error("不支持的压缩算法 (method=" + entry.compMethod + ")");
+            throw new Error((isEn ? "Unsupported compression method (method=" : "不支持的压缩算法 (method=") + entry.compMethod + ")");
         }
 
         function resolveEntry(baseDir, rawHref) {
@@ -7747,7 +7796,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
 
     function parseXlsx(zip, meta) {
         const wbXml = zip.readText("xl/workbook.xml");
-        if (!wbXml) throw new Error("缺少 xl/workbook.xml，不是标准 Excel 工作簿");
+        if (!wbXml) throw new Error(isEn ? "Missing xl/workbook.xml (not a standard Excel workbook)" : "缺少 xl/workbook.xml，不是标准 Excel 工作簿");
         const relsXml = zip.readText("xl/_rels/workbook.xml.rels") || "";
         const relMap = new Map();
         const relRe = /<(?:[A-Za-z0-9_]+:)?Relationship\b([^>]*)\/?>/g;
@@ -8018,7 +8067,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
 
     function parseDocx(zip, meta) {
         const docXml = zip.readText("word/document.xml");
-        if (!docXml) throw new Error("缺少 word/document.xml，不是标准 Word 文档");
+        if (!docXml) throw new Error(isEn ? "Missing word/document.xml (not a standard Word document)" : "缺少 word/document.xml，不是标准 Word 文档");
         const bodyMatch = /<(?:[A-Za-z0-9_]+:)?body\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z0-9_]+:)?body>/.exec(docXml);
         const bodyXml = bodyMatch ? bodyMatch[1] : docXml;
 
@@ -8341,7 +8390,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
                 const children = tailXml ? parseNavPoints(tailXml, depth + 1) : [];
                 if (title || children.length > 0) {
                     nodes.push({
-                        title: title || "(未命名章节)",
+                        title: title || (isEn ? "(Untitled Chapter)" : "(未命名章节)"),
                         level: depth,
                         spineIndex,
                         anchor,
@@ -8483,12 +8532,12 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
     function readEpubChapterPayload(session, spineIndex) {
         const idx = Number(spineIndex);
         if (!Number.isInteger(idx) || idx < 0 || idx >= session.spine.length) {
-            throw new Error("无效的章节索引: " + spineIndex);
+            throw new Error((isEn ? "Invalid chapter index: " : "无效的章节索引: ") + spineIndex);
         }
         const ch = session.spine[idx];
         const rawHtml = session.zip.readText(ch.zipPath);
         if (rawHtml === null) {
-            throw new Error("无法读取章节内容: " + ch.zipPath);
+            throw new Error((isEn ? "Failed to read chapter content: " : "无法读取章节内容: ") + ch.zipPath);
         }
         const { html, truncatedImages } = inlineEpubChapterImages(session.zip, ch.baseDir, rawHtml);
         return {
@@ -8553,12 +8602,12 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             }
         }
         if (!opfPath) {
-            throw new Error("未找到 EPUB 容器索引文件 (.opf)");
+            throw new Error(isEn ? "EPUB container index (.opf) not found" : "未找到 EPUB 容器索引文件 (.opf)");
         }
 
         const opfXml = zip.readText(opfPath);
         if (!opfXml) {
-            throw new Error("无法读取 OPF 元数据文件: " + opfPath);
+            throw new Error((isEn ? "Failed to read OPF metadata: " : "无法读取 OPF 元数据文件: ") + opfPath);
         }
         const rawOpfDir = pathMod.posix.dirname(opfPath);
         const opfDir = rawOpfDir === "." ? "" : rawOpfDir;
@@ -8667,7 +8716,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
         for (let i = 0; i < spine.length; i++) {
             if (!spine[i].title) {
                 const htmlHead = zip.readText(spine[i].zipPath);
-                spine[i].title = extractFallbackHeadingTitle(htmlHead) || ("第 " + (i + 1) + " 章");
+                spine[i].title = extractFallbackHeadingTitle(htmlHead) || (isEn ? ("Chapter " + (i + 1)) : ("第 " + (i + 1) + " 章"));
             }
         }
 
@@ -8716,7 +8765,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
         assertMainFrame(event);
         const nativePath = resolveNativePath(uriOrPath);
         if (!fsSync.existsSync(nativePath)) {
-            return { ok: false, error: "文件不存在: " + nativePath, path: nativePath };
+            return { ok: false, error: (isEn ? "File not found: " : "文件不存在: ") + nativePath, path: nativePath };
         }
         const errMsg = await electron_1.shell.openPath(nativePath);
         return { ok: !errMsg, error: errMsg || null, path: nativePath };
@@ -8728,7 +8777,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
         try {
             const nativePath = resolveNativePath(uriOrPath);
             if (!fsSync.existsSync(nativePath)) {
-                return { ok: false, error: "本地文件不存在: " + nativePath };
+                return { ok: false, error: (isEn ? "Local file not found: " : "本地文件不存在: ") + nativePath };
             }
             const stat = fsSync.statSync(nativePath);
             const ext = pathMod.extname(nativePath).toLowerCase();
@@ -8744,7 +8793,9 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
                     ok: true,
                     kind: "external-only",
                     ...meta,
-                    reason: "文件体积较大 (" + (stat.size / 1048576).toFixed(1) + " MB)，建议直接调用系统默认应用打开。"
+                    reason: isEn
+                        ? ("File is large (" + (stat.size / 1048576).toFixed(1) + " MB). Open it directly in your default app.")
+                        : ("文件体积较大 (" + (stat.size / 1048576).toFixed(1) + " MB)，建议直接调用系统默认应用打开。")
                 };
             }
 
@@ -8770,11 +8821,13 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
                         ok: true,
                         kind: "external-only",
                         ...meta,
-                        reason: "该 EPUB 电子书受 DRM 数字版权加密保护，不支持直接解析正文，可尝试调用系统默认阅读器打开。"
+                        reason: isEn
+                            ? "This EPUB is DRM-protected and cannot be parsed inline. Try opening it in your default reader."
+                            : "该 EPUB 电子书受 DRM 数字版权加密保护，不支持直接解析正文，可尝试调用系统默认阅读器打开。"
                     };
                 }
                 if (!session.spine.length) {
-                    throw new Error("EPUB 容器中未找到可阅读的章节内容 (spine 为空)");
+                    throw new Error(isEn ? "No readable chapters found in EPUB container (empty spine)" : "EPUB 容器中未找到可阅读的章节内容 (spine 为空)");
                 }
                 const initialChapter = readEpubChapterPayload(session, 0);
                 return {
@@ -8793,8 +8846,12 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
                 kind: "external-only",
                 ...meta,
                 reason: (ext === ".xls" || ext === ".doc" || ext === ".ppt")
-                    ? "当前为旧版二进制 Office 格式 (" + ext + ")，可直接调用系统默认应用查看。"
-                    : "此二进制格式 (" + (ext || "binary") + ") 暂不支持内嵌解析，可一键调用系统默认应用打开。"
+                    ? (isEn
+                        ? ("Legacy binary Office format (" + ext + "). Open it in your default app to view.")
+                        : ("当前为旧版二进制 Office 格式 (" + ext + ")，可直接调用系统默认应用查看。"))
+                    : (isEn
+                        ? ("Inline preview is not supported for this binary format (" + (ext || "binary") + "). Open it in your default app.")
+                        : ("此二进制格式 (" + (ext || "binary") + ") 暂不支持内嵌解析，可一键调用系统默认应用打开。"))
             };
         } catch (err) {
             return {
@@ -8810,11 +8867,11 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
         try {
             const nativePath = resolveNativePath(uriOrPath);
             if (!fsSync.existsSync(nativePath)) {
-                return { ok: false, error: "本地文件不存在: " + nativePath };
+                return { ok: false, error: (isEn ? "Local file not found: " : "本地文件不存在: ") + nativePath };
             }
             const stat = fsSync.statSync(nativePath);
             if (stat.size > MAX_OFFICE_FILE_BYTES) {
-                return { ok: false, error: "文件体积超过预览上限" };
+                return { ok: false, error: isEn ? "File exceeds preview size limit" : "文件体积超过预览上限" };
             }
             const meta = {
                 ext: ".epub",
@@ -8824,7 +8881,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             };
             const session = loadOrBuildEpubSession(nativePath, stat, meta);
             if (session.encrypted) {
-                return { ok: false, error: "该 EPUB 受 DRM 加密保护" };
+                return { ok: false, error: isEn ? "This EPUB is DRM-protected" : "该 EPUB 受 DRM 加密保护" };
             }
             return readEpubChapterPayload(session, spineIndex);
         } catch (err) {
@@ -8842,11 +8899,11 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             }
             const nativePath = resolveNativePath(uriOrPath);
             if (!fsSync.existsSync(nativePath)) {
-                return { ok: false, error: "本地文件不存在: " + nativePath };
+                return { ok: false, error: (isEn ? "Local file not found: " : "本地文件不存在: ") + nativePath };
             }
             const stat = fsSync.statSync(nativePath);
             if (stat.size > MAX_OFFICE_FILE_BYTES) {
-                return { ok: false, error: "文件体积超过预览上限" };
+                return { ok: false, error: isEn ? "File exceeds preview size limit" : "文件体积超过预览上限" };
             }
             const meta = {
                 ext: ".epub",
@@ -8856,7 +8913,7 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
             };
             const session = loadOrBuildEpubSession(nativePath, stat, meta);
             if (session.encrypted) {
-                return { ok: false, error: "该 EPUB 受 DRM 加密保护" };
+                return { ok: false, error: isEn ? "This EPUB is DRM-protected" : "该 EPUB 受 DRM 加密保护" };
             }
 
             const qLower = q.toLowerCase();
@@ -8908,8 +8965,10 @@ function __agRegisterOfficeIpcHandlers(electron_1, url_1, wsl_1) {
     });
 }
 
-function __agSetupOfficePreviewRenderer(ipcInvoke) {
+function __agSetupOfficePreviewRenderer(ipcInvoke, uiLang) {
     if (!ipcInvoke || typeof document === "undefined") return;
+    const isEn = String(uiLang || "").toLowerCase() === "en"
+        || Boolean(document.documentElement && document.documentElement.dataset && document.documentElement.dataset.agExoLang === "en");
 
     const AUTO_OPEN_KEY = "ag_ux_office_auto_open";
     const STYLE_ID = "ag-ux-office-preview-style";
@@ -9436,16 +9495,18 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
 
     async function triggerOpenDefaultApp(fileUri, btnEl) {
         const origText = btnEl ? btnEl.textContent : "";
-        if (btnEl) btnEl.textContent = "正在调起...";
+        if (btnEl) btnEl.textContent = isEn ? "Opening..." : "正在调起...";
         try {
             const res = await ipcInvoke("ag-ux:open-in-default-app", fileUri);
             if (btnEl) {
-                btnEl.textContent = (res && res.ok) ? "已调起默认应用 ✓" : ("打开失败: " + ((res && res.error) || "未知错误"));
+                btnEl.textContent = (res && res.ok)
+                    ? (isEn ? "Opened in Default App ✓" : "已调起默认应用 ✓")
+                    : ((isEn ? "Open failed: " : "打开失败: ") + ((res && res.error) || (isEn ? "Unknown error" : "未知错误")));
                 setTimeout(() => { btnEl.textContent = origText; }, 1800);
             }
         } catch (err) {
             if (btnEl) {
-                btnEl.textContent = "调起失败";
+                btnEl.textContent = isEn ? "Failed to open" : "调起失败";
                 setTimeout(() => { btnEl.textContent = origText; }, 1800);
             }
         }
@@ -9497,7 +9558,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             const searchInput = document.createElement("input");
             searchInput.type = "search";
             searchInput.className = "ag-office-search";
-            searchInput.placeholder = extClean === "EPUB" ? "搜索全书..." : "筛选内容...";
+            searchInput.placeholder = extClean === "EPUB"
+                ? (isEn ? "Search book..." : "搜索全书...")
+                : (isEn ? "Filter content..." : "筛选内容...");
             searchInput.addEventListener("input", () => onSearchChange(searchInput.value.trim().toLowerCase()));
             right.appendChild(searchInput);
         }
@@ -9505,7 +9568,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const revealBtn = document.createElement("button");
         revealBtn.type = "button";
         revealBtn.className = "ag-office-btn";
-        revealBtn.textContent = "定位文件";
+        revealBtn.textContent = isEn ? "Reveal File" : "定位文件";
         revealBtn.addEventListener("click", () => {
             ipcInvoke("shell:reveal-in-file-picker", fileUri).catch(() => {});
         });
@@ -9513,7 +9576,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const openBtn = document.createElement("button");
         openBtn.type = "button";
         openBtn.className = "ag-office-btn ag-office-btn-primary";
-        openBtn.textContent = "↗ 用默认应用打开";
+        openBtn.textContent = isEn ? "↗ Open in Default App" : "↗ 用默认应用打开";
         openBtn.addEventListener("click", () => triggerOpenDefaultApp(fileUri, openBtn));
 
         right.appendChild(revealBtn);
@@ -9541,13 +9604,15 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         fxBar.className = "ag-office-fxbar";
         const fxCoord = document.createElement("span");
         fxCoord.style.cssText = "font-weight:700;min-width:44px;color:var(--foreground);";
-        fxCoord.textContent = "单元格";
+        fxCoord.textContent = isEn ? "Cell" : "单元格";
         const fxSep = document.createElement("span");
         fxSep.style.color = "var(--muted-foreground)";
         fxSep.textContent = "fx";
         const fxVal = document.createElement("span");
         fxVal.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted-foreground);";
-        fxVal.textContent = "点击任意单元格查看完整值与公式（右上角绿标代表含公式）";
+        fxVal.textContent = isEn
+            ? "Click any cell to inspect full value and formula (green corner indicates formula)"
+            : "点击任意单元格查看完整值与公式（右上角绿标代表含公式）";
         fxBar.appendChild(fxCoord);
         fxBar.appendChild(fxSep);
         fxBar.appendChild(fxVal);
@@ -9564,7 +9629,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
                 const btn = document.createElement("button");
                 btn.type = "button";
                 btn.className = "ag-office-tab" + (idx === activeIdx ? " active" : "");
-                btn.textContent = sh.name + (sh.hidden ? " (隐藏)" : "");
+                btn.textContent = sh.name + (sh.hidden ? (isEn ? " (Hidden)" : " (隐藏)") : "");
                 btn.addEventListener("click", () => {
                     activeIdx = idx;
                     drawSheet();
@@ -9577,21 +9642,21 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             if (!sheet) {
                 const empty = document.createElement("div");
                 empty.style.padding = "24px";
-                empty.textContent = "工作簿中无可见工作表。";
+                empty.textContent = isEn ? "No visible worksheets in workbook." : "工作簿中无可见工作表。";
                 scrollWrap.appendChild(empty);
                 return;
             }
             if (sheet.error) {
                 const errEl = document.createElement("div");
                 errEl.style.padding = "24px";
-                errEl.textContent = "解析该工作表出错: " + sheet.error;
+                errEl.textContent = (isEn ? "Failed to parse worksheet: " : "解析该工作表出错: ") + sheet.error;
                 scrollWrap.appendChild(errEl);
                 return;
             }
             if (sheet.rows.length === 0 || sheet.colCount === 0) {
                 const empty = document.createElement("div");
                 empty.style.cssText = "padding:32px;text-align:center;color:var(--muted-foreground);";
-                empty.textContent = "当前工作表为空。";
+                empty.textContent = isEn ? "This worksheet is empty." : "当前工作表为空。";
                 scrollWrap.appendChild(empty);
                 return;
             }
@@ -9689,8 +9754,8 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
                         fxCoord.textContent = coordLabel;
                         fxVal.style.color = "var(--foreground)";
                         fxVal.textContent = formulaStr
-                            ? ("=" + formulaStr + "    [值: " + (valStr || "空") + "]")
-                            : (valStr !== "" ? valStr : "(空)");
+                            ? ("=" + formulaStr + (isEn ? ("    [Value: " + (valStr || "empty") + "]") : ("    [值: " + (valStr || "空") + "]")))
+                            : (valStr !== "" ? valStr : (isEn ? "(empty)" : "(空)"));
                     });
 
                     tr.appendChild(td);
@@ -9704,7 +9769,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             if (sheet.truncatedRows) {
                 const note = document.createElement("div");
                 note.style.cssText = "padding:10px 14px;color:var(--muted-foreground);font-size:11.5px;border-top:1px solid var(--border);";
-                note.textContent = "已速览前 " + sheet.rows.length + " 行（共 " + sheet.totalRows + " 行），查看全量数据与原生格式请点击右上角「用默认应用打开」。";
+                note.textContent = isEn
+                    ? ("Showing first " + sheet.rows.length + " rows (of " + sheet.totalRows + "). Click \"Open in Default App\" above to view all data and native formatting.")
+                    : ("已速览前 " + sheet.rows.length + " 行（共 " + sheet.totalRows + " 行），查看全量数据与原生格式请点击右上角「用默认应用打开」。");
                 scrollWrap.appendChild(note);
             }
         }
@@ -9712,7 +9779,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const toolbar = buildToolbar(
             { ext: ".xlsx", fileName: data.fileName, fileSize: data.fileSize, path: data.path },
             fileUri,
-            sheets.length + " 个工作表",
+            isEn ? (sheets.length + (sheets.length === 1 ? " sheet" : " sheets")) : (sheets.length + " 个工作表"),
             (kw) => {
                 filterKeyword = kw;
                 drawSheet();
@@ -9819,13 +9886,17 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             if (shown === 0) {
                 const empty = document.createElement("div");
                 empty.style.cssText = "padding:32px;text-align:center;color:var(--muted-foreground);";
-                empty.textContent = filterKeyword ? "未匹配到包含该关键字的段落或表格。" : "文档中无可提取的正文文本。";
+                empty.textContent = filterKeyword
+                    ? (isEn ? "No paragraphs or tables match this filter." : "未匹配到包含该关键字的段落或表格。")
+                    : (isEn ? "No extractable body text in document." : "文档中无可提取的正文文本。");
                 paper.appendChild(empty);
             }
             if (data.truncated) {
                 const note = document.createElement("div");
                 note.style.cssText = "margin-top:16px;padding-top:10px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:12px;";
-                note.textContent = "已展示前 " + MAX_DOCX_BLOCKS_HINT + " 个段落/表格块，完整排版请点击右上角「用默认应用打开」。";
+                note.textContent = isEn
+                    ? ("Showing first " + MAX_DOCX_BLOCKS_HINT + " blocks. Click \"Open in Default App\" above for full layout.")
+                    : ("已展示前 " + MAX_DOCX_BLOCKS_HINT + " 个段落/表格块，完整排版请点击右上角「用默认应用打开」。");
                 paper.appendChild(note);
             }
             scrollWrap.appendChild(paper);
@@ -9835,7 +9906,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const toolbar = buildToolbar(
             { ext: ".docx", fileName: data.fileName, fileSize: data.fileSize, path: data.path },
             fileUri,
-            (data.blocks ? data.blocks.length : 0) + " 个内容块",
+            isEn
+                ? ((data.blocks ? data.blocks.length : 0) + ((data.blocks ? data.blocks.length : 0) === 1 ? " block" : " blocks"))
+                : ((data.blocks ? data.blocks.length : 0) + " 个内容块"),
             (kw) => {
                 filterKeyword = kw;
                 drawDoc();
@@ -9858,7 +9931,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const toolbar = buildToolbar(
             { ext: ".pptx", fileName: data.fileName, fileSize: data.fileSize, path: data.path },
             fileUri,
-            slides.length + " 页幻灯片",
+            isEn ? (slides.length + (slides.length === 1 ? " slide" : " slides")) : (slides.length + " 页幻灯片"),
             null
         );
 
@@ -9877,7 +9950,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             if (!sl.lines.length) {
                 const emp = document.createElement("div");
                 emp.style.color = "var(--muted-foreground)";
-                emp.textContent = "(纯图形页 / 无文本)";
+                emp.textContent = isEn ? "(Visual slide / no text)" : "(纯图形页 / 无文本)";
                 card.appendChild(emp);
             } else {
                 sl.lines.forEach((ln, idx) => {
@@ -9914,13 +9987,13 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
 
         const msg = document.createElement("div");
         msg.style.cssText = "color:var(--muted-foreground);max-width:420px;line-height:1.6;";
-        msg.textContent = info.reason || info.error || "可直接调用系统默认应用程序打开此文件。";
+        msg.textContent = info.reason || info.error || (isEn ? "Open this file directly in your system default application." : "可直接调用系统默认应用程序打开此文件。");
 
         const bigBtn = document.createElement("button");
         bigBtn.type = "button";
         bigBtn.className = "ag-office-btn ag-office-btn-primary";
         bigBtn.style.cssText = "height:34px;padding:0 18px;font-size:13px;border-radius:8px;";
-        bigBtn.textContent = "↗ 用系统默认应用打开";
+        bigBtn.textContent = isEn ? "↗ Open in Default App" : "↗ 用系统默认应用打开";
         bigBtn.addEventListener("click", () => triggerOpenDefaultApp(fileUri, bigBtn));
 
         center.appendChild(msg);
@@ -10192,7 +10265,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
                     const imgEl = document.createElement("img");
                     imgEl.className = "ag-epub-img ag-epub-cover-img";
                     imgEl.src = svgDataImg;
-                    imgEl.alt = "封面插图";
+                    imgEl.alt = isEn ? "Cover illustration" : "封面插图";
                     imgEl.loading = "lazy";
                     registerAnchors(imgEl, srcEl, "svg");
                     return imgEl;
@@ -10255,7 +10328,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
                 }
                 const ph = document.createElement("span");
                 ph.className = "ag-epub-img-placeholder";
-                ph.textContent = altText ? ("[图片: " + altText + "]") : "[图片未内嵌]";
+                ph.textContent = altText
+                    ? (isEn ? ("[Image: " + altText + "]") : ("[图片: " + altText + "]"))
+                    : (isEn ? "[Image not embedded]" : "[图片未内嵌]");
                 registerAnchors(ph, srcEl, tag);
                 return ph;
             }
@@ -10268,7 +10343,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
                         el.setAttribute("href", "#");
                         el.setAttribute("data-epub-href", rawHref);
                         if (/^(https?:|mailto:|tel:)/i.test(rawHref)) {
-                            el.title = "外部链接（阅读器已拦截跳转）: " + rawHref;
+                            el.title = (isEn ? "External link (blocked in reader): " : "外部链接（阅读器已拦截跳转）: ") + rawHref;
                             el.addEventListener("click", (ev) => {
                                 ev.preventDefault();
                                 ev.stopPropagation();
@@ -10339,9 +10414,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const spine = Array.isArray(data.spine) ? data.spine : [];
         const toc = Array.isArray(data.toc) ? data.toc : [];
         const bookMeta = data.bookMeta || {};
-        const bookTitle = bookMeta.title || data.fileName || "EPUB 电子书";
+        const bookTitle = bookMeta.title || data.fileName || (isEn ? "EPUB Book" : "EPUB 电子书");
 
-        const summaryParts = [spine.length + " 章"];
+        const summaryParts = [isEn ? (spine.length + (spine.length === 1 ? " chapter" : " chapters")) : (spine.length + " 章")];
         if (bookMeta.creator) summaryParts.push(bookMeta.creator);
 
         let currentSpineIndex = (data.initialChapter && typeof data.initialChapter.spineIndex === "number")
@@ -10367,8 +10442,8 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const tocBtn = document.createElement("button");
         tocBtn.type = "button";
         tocBtn.className = "ag-office-btn" + (sidebarCollapsed ? "" : " ag-epub-btn-active");
-        tocBtn.textContent = "☰ 目录";
-        tocBtn.title = "展开或收起目录与全书搜索侧栏";
+        tocBtn.textContent = isEn ? "☰ Contents" : "☰ 目录";
+        tocBtn.title = isEn ? "Toggle table of contents and full-book search sidebar" : "展开或收起目录与全书搜索侧栏";
 
         const fontGroup = document.createElement("div");
         fontGroup.className = "ag-epub-font-group";
@@ -10376,12 +10451,12 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         fontDecBtn.type = "button";
         fontDecBtn.className = "ag-epub-font-btn";
         fontDecBtn.textContent = "A-";
-        fontDecBtn.title = "缩小正文字号";
+        fontDecBtn.title = isEn ? "Decrease font size" : "缩小正文字号";
         const fontIncBtn = document.createElement("button");
         fontIncBtn.type = "button";
         fontIncBtn.className = "ag-epub-font-btn";
         fontIncBtn.textContent = "A+";
-        fontIncBtn.title = "放大正文字号";
+        fontIncBtn.title = isEn ? "Increase font size" : "放大正文字号";
         fontGroup.appendChild(fontDecBtn);
         fontGroup.appendChild(fontIncBtn);
 
@@ -10404,11 +10479,11 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const sidebarHeader = document.createElement("div");
         sidebarHeader.className = "ag-epub-sidebar-header";
         const sidebarTitle = document.createElement("span");
-        sidebarTitle.textContent = "目录";
+        sidebarTitle.textContent = isEn ? "Contents" : "目录";
         const sidebarBackBtn = document.createElement("button");
         sidebarBackBtn.type = "button";
         sidebarBackBtn.className = "ag-epub-sidebar-back";
-        sidebarBackBtn.textContent = "返回目录";
+        sidebarBackBtn.textContent = isEn ? "Back to TOC" : "返回目录";
         sidebarBackBtn.style.display = "none";
         sidebarHeader.appendChild(sidebarTitle);
         sidebarHeader.appendChild(sidebarBackBtn);
@@ -10438,7 +10513,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const prevBtn = document.createElement("button");
         prevBtn.type = "button";
         prevBtn.className = "ag-epub-nav-btn";
-        prevBtn.textContent = "← 上一章";
+        prevBtn.textContent = isEn ? "← Prev" : "← 上一章";
         const footerMid = document.createElement("div");
         footerMid.className = "ag-epub-footer-mid";
         const chapSelect = document.createElement("select");
@@ -10446,7 +10521,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         for (let i = 0; i < spine.length; i++) {
             const opt = document.createElement("option");
             opt.value = String(i);
-            opt.textContent = (i + 1) + "/" + spine.length + " · " + (spine[i].title || ("第 " + (i + 1) + " 章"));
+            opt.textContent = (i + 1) + "/" + spine.length + " · " + (spine[i].title || (isEn ? ("Chapter " + (i + 1)) : ("第 " + (i + 1) + " 章")));
             chapSelect.appendChild(opt);
         }
         const statusMsg = document.createElement("span");
@@ -10457,7 +10532,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         const nextBtn = document.createElement("button");
         nextBtn.type = "button";
         nextBtn.className = "ag-epub-nav-btn";
-        nextBtn.textContent = "下一章 →";
+        nextBtn.textContent = isEn ? "Next →" : "下一章 →";
 
         footer.appendChild(prevBtn);
         footer.appendChild(footerMid);
@@ -10511,7 +10586,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
                 btn.className = "ag-epub-toc-item";
                 const padLeft = Math.min(4, Math.max(0, (level || 1) - 1)) * 12 + 8;
                 btn.style.paddingLeft = padLeft + "px";
-                btn.textContent = title || ("章节 " + (spineIdx + 1));
+                btn.textContent = title || (isEn ? ("Chapter " + (spineIdx + 1)) : ("章节 " + (spineIdx + 1)));
                 btn.title = btn.textContent;
                 btn.addEventListener("click", () => {
                     if (spineIdx >= 0) {
@@ -10537,12 +10612,12 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             }
 
             if (toc.length > 0) {
-                sidebarTitle.textContent = "目录";
+                sidebarTitle.textContent = isEn ? "Contents" : "目录";
                 walkTocNodes(toc, 1);
             } else {
-                sidebarTitle.textContent = "章节列表 (" + spine.length + ")";
+                sidebarTitle.textContent = isEn ? ("Chapters (" + spine.length + ")") : ("章节列表 (" + spine.length + ")");
                 for (let i = 0; i < spine.length; i++) {
-                    appendTocItem(spine[i].title || ("第 " + (i + 1) + " 章"), 1, i, "");
+                    appendTocItem(spine[i].title || (isEn ? ("Chapter " + (i + 1)) : ("第 " + (i + 1) + " 章")), 1, i, "");
                 }
             }
             updateActiveTocHighlight();
@@ -10573,7 +10648,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             if (!pathPart) {
                 if (anchor) {
                     if (!scrollToAnchor(anchor)) {
-                        setTransientStatus("未找到页内锚点 #" + safeDecodeAnchor(anchor));
+                        setTransientStatus((isEn ? "Anchor not found: #" : "未找到页内锚点 #") + safeDecodeAnchor(anchor));
                     }
                 } else {
                     stage.scrollTop = 0;
@@ -10610,12 +10685,12 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             } else if (anchor && scrollToAnchor(anchor)) {
                 return;
             } else {
-                setTransientStatus("未定位到目标章节: " + pathPart);
+                setTransientStatus((isEn ? "Target chapter not found: " : "未定位到目标章节: ") + pathPart);
             }
         }
 
         function handleExternalBlocked(rawHref) {
-            setTransientStatus("已拦截外部跳转: " + rawHref);
+            setTransientStatus((isEn ? "Blocked external link: " : "已拦截外部跳转: ") + rawHref);
         }
 
         function applyChapterPayload(chapRes, targetAnchor, highlightOrdinal) {
@@ -10627,7 +10702,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             setTransientStatus("");
 
             if (chapRes.truncatedImages) {
-                banner.textContent = "提示：本章包含超大图片资源，已跳过超限图片以保障侧边栏流畅阅读。";
+                banner.textContent = isEn
+                    ? "Note: Oversized images in this chapter were skipped to keep sidebar reading smooth."
+                    : "提示：本章包含超大图片资源，已跳过超限图片以保障侧边栏流畅阅读。";
                 banner.style.display = "";
             } else {
                 banner.style.display = "none";
@@ -10668,23 +10745,23 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             }
 
             const seq = ++chapterLoadSeq;
-            setTransientStatus("正在加载第 " + (targetSpineIndex + 1) + " 章...");
+            setTransientStatus(isEn ? ("Loading chapter " + (targetSpineIndex + 1) + "...") : ("正在加载第 " + (targetSpineIndex + 1) + " 章..."));
             try {
                 const res = await ipcInvoke("ag-ux:epub-read-chapter", fileUri, targetSpineIndex);
                 if (seq !== chapterLoadSeq || viewerHostMismatch()) return;
                 if (!res || !res.ok) {
-                    setTransientStatus("章节加载失败");
+                    setTransientStatus(isEn ? "Failed to load chapter" : "章节加载失败");
                     paper.textContent = "";
                     const errBox = document.createElement("p");
                     errBox.style.color = "var(--muted-foreground)";
-                    errBox.textContent = "读取章节失败：" + ((res && res.error) || "未知错误");
+                    errBox.textContent = (isEn ? "Failed to read chapter: " : "读取章节失败：") + ((res && res.error) || (isEn ? "Unknown error" : "未知错误"));
                     paper.appendChild(errBox);
                     return;
                 }
                 applyChapterPayload(res, targetAnchor || "", activeHighlightOrdinal);
             } catch (err) {
                 if (seq !== chapterLoadSeq || viewerHostMismatch()) return;
-                setTransientStatus("章节加载异常: " + (err && err.message ? err.message : String(err)));
+                setTransientStatus((isEn ? "Chapter load error: " : "章节加载异常: ") + (err && err.message ? err.message : String(err)));
             }
         }
 
@@ -10698,19 +10775,21 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             sidebarScroll.textContent = "";
 
             if (!res || !res.ok) {
-                sidebarTitle.textContent = "搜索失败";
+                sidebarTitle.textContent = isEn ? "Search failed" : "搜索失败";
                 const msg = document.createElement("div");
                 msg.style.cssText = "padding:10px;color:var(--muted-foreground);font-size:12px;";
-                msg.textContent = (res && res.error) || "搜索出错";
+                msg.textContent = (res && res.error) || (isEn ? "Search error" : "搜索出错");
                 sidebarScroll.appendChild(msg);
                 return;
             }
 
-            sidebarTitle.textContent = "搜索 (" + res.totalHits + ")" + (res.truncated ? "+" : "");
+            sidebarTitle.textContent = (isEn ? "Search (" : "搜索 (") + res.totalHits + ")" + (res.truncated ? "+" : "");
             if (!res.results || res.results.length === 0) {
                 const empty = document.createElement("div");
                 empty.style.cssText = "padding:12px 8px;color:var(--muted-foreground);font-size:12px;";
-                empty.textContent = "未在全书正文中找到 \"" + q + "\"";
+                empty.textContent = isEn
+                    ? ("No matches found for \"" + q + "\"")
+                    : ("未在全书正文中找到 \"" + q + "\"");
                 sidebarScroll.appendChild(empty);
                 return;
             }
@@ -10718,7 +10797,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             if (res.truncated) {
                 const tip = document.createElement("div");
                 tip.style.cssText = "padding:4px 6px 8px;color:var(--muted-foreground);font-size:11px;";
-                tip.textContent = "共命中 " + res.totalHits + " 处，展示前 " + res.results.length + " 条：";
+                tip.textContent = isEn
+                    ? (res.totalHits + " matches total, showing first " + res.results.length + ":")
+                    : ("共命中 " + res.totalHits + " 处，展示前 " + res.results.length + " 条：");
                 sidebarScroll.appendChild(tip);
             }
 
@@ -10730,7 +10811,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
 
                 const chapLine = document.createElement("div");
                 chapLine.className = "ag-epub-search-chap";
-                chapLine.textContent = (item.spineIndex + 1) + ". " + (item.chapterTitle || "正文");
+                chapLine.textContent = (item.spineIndex + 1) + ". " + (item.chapterTitle || (isEn ? "Section" : "正文"));
 
                 const snip = document.createElement("div");
                 snip.className = "ag-epub-search-snip";
@@ -10771,11 +10852,11 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             setSidebarCollapsed(false);
             isShowingSearch = true;
             sidebarBackBtn.style.display = "";
-            sidebarTitle.textContent = "搜索中...";
+            sidebarTitle.textContent = isEn ? "Searching..." : "搜索中...";
             sidebarScroll.textContent = "";
             const loadingHint = document.createElement("div");
             loadingHint.style.cssText = "padding:10px;color:var(--muted-foreground);font-size:12px;";
-            loadingHint.textContent = "正在检索全书章节...";
+            loadingHint.textContent = isEn ? "Searching all chapters..." : "正在检索全书章节...";
             sidebarScroll.appendChild(loadingHint);
 
             searchTimer = setTimeout(async () => {
@@ -10826,7 +10907,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             nextBtn.disabled = true;
             const empty = document.createElement("p");
             empty.style.color = "var(--muted-foreground)";
-            empty.textContent = "未找到可阅读的 EPUB 章节。";
+            empty.textContent = isEn ? "No readable EPUB chapters found." : "未找到可阅读的 EPUB 章节。";
             paper.appendChild(empty);
         }
     }
@@ -10836,7 +10917,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
         viewerHost.textContent = "";
         const loading = document.createElement("div");
         loading.style.cssText = "display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--muted-foreground);font-size:12.5px;";
-        loading.textContent = "正在加载文档速览...";
+        loading.textContent = isEn ? "Loading document preview..." : "正在加载文档速览...";
         viewerHost.appendChild(loading);
 
         if (OFFICE_EXT_RE.test(fileUri) && isAutoOpenEnabled()) {
@@ -10854,7 +10935,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
                 renderExternalFallback(viewerHost, {
                     fileName: fallbackName,
                     ext: fallbackName.includes(".") ? ("." + fallbackName.split(".").pop()) : "",
-                    error: (res && res.error) || "解析失败"
+                    error: (res && res.error) || (isEn ? "Parse failed" : "解析失败")
                 }, fileUri);
                 return;
             }
@@ -10899,7 +10980,7 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
             const labelEl = document.createElement("span");
             labelEl.className = "text-sm";
             labelEl.id = "ag-ux-office-auto-label";
-            labelEl.textContent = "Office 文件自动外开";
+            labelEl.textContent = isEn ? "Auto-open Office Files" : "Office 文件自动外开";
 
             const badgeEl = document.createElement("span");
             badgeEl.className = "text-[10px] font-semibold leading-none bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded-full select-none border border-border";
@@ -10910,7 +10991,9 @@ function __agSetupOfficePreviewRenderer(ipcInvoke) {
 
             const descEl = document.createElement("span");
             descEl.className = "text-xs text-muted-foreground whitespace-pre-wrap";
-            descEl.textContent = "开启后点击 Word / Excel / PPT 文件将立即拉起系统默认程序；关闭时仅在侧边栏内速览并保留顶部外开按钮。";
+            descEl.textContent = isEn
+                ? "Automatically launch your default system app when clicking Word / Excel / PPT files; when off, preview inline in the sidebar with a quick-open button."
+                : "开启后点击 Word / Excel / PPT 文件将立即拉起系统默认程序；关闭时仅在侧边栏内速览并保留顶部外开按钮。";
 
             leftCol.appendChild(labelWrap);
             leftCol.appendChild(descEl);
@@ -11028,12 +11111,40 @@ function cleanJsContent(content) {
 
 function cleanMenuJsContent(content) {
     const withoutLegacy = removeMarkedBlocks(content, LEGACY_MENU_SIGNATURE_START, LEGACY_MENU_SIGNATURE_END);
-    return removeMarkedBlocks(withoutLegacy, MENU_SIGNATURE_START, MENU_SIGNATURE_END);
+    return removeMarkedBlocks(withoutLegacy, MENU_SIGNATURE_START, MENU_SIGNATURE_END)
+        .replace("return { label: '连接至 WSL', submenu };", "return { label: 'Connect to WSL', submenu };")
+        .replace("return { label: '在本地重新打开', click: () => relaunchWithWslDistro('') };", "return { label: 'Reopen Locally', click: () => relaunchWithWslDistro('') };");
 }
 
 function cleanTrayJsContent(content) {
     const withoutLegacy = removeMarkedBlocks(content, LEGACY_TRAY_SIGNATURE_START, LEGACY_TRAY_SIGNATURE_END);
-    return removeMarkedBlocks(withoutLegacy, TRAY_SIGNATURE_START, TRAY_SIGNATURE_END);
+    return removeMarkedBlocks(withoutLegacy, TRAY_SIGNATURE_START, TRAY_SIGNATURE_END)
+        .replace(
+            "countItem.label = count > 0 ? `${count} 个智能体运行中` : '无运行中的智能体';",
+            "countItem.label = count > 0 ? `${count} agent${count === 1 ? '' : 's'} running` : 'No agents running';"
+        );
+}
+
+function cleanUpdaterJsContent(content) {
+    return content
+        .replace(
+            "                title: '检查更新',\n                message: '暂无可用更新',\n                buttons: ['确定'],",
+            "                title: 'Check for Updates',\n                message: 'No updates available',\n                buttons: ['OK'],"
+        )
+        .replace('MenuUpdateStep["CheckForUpdates"] = "检查更新";', 'MenuUpdateStep["CheckForUpdates"] = "Check for Updates";')
+        .replace('MenuUpdateStep["CheckingForUpdates"] = "正在检查更新...";', 'MenuUpdateStep["CheckingForUpdates"] = "Checking for Updates...";')
+        .replace('MenuUpdateStep["DownloadingUpdate"] = "正在下载更新...";', 'MenuUpdateStep["DownloadingUpdate"] = "Downloading Update...";')
+        .replace('MenuUpdateStep["RestartToUpdate"] = "重启以更新";', 'MenuUpdateStep["RestartToUpdate"] = "Restart to Update";');
+}
+
+function cleanProvisionSplashJsContent(content) {
+    return content.replace('<div>正在设置 WSL：${escapeHtml(distro)}</div>', '<div>Setting up WSL: ${escapeHtml(distro)}</div>');
+}
+
+function cleanWslJsContent(content) {
+    return content
+        .replace("onStatus?.('正在下载 Antigravity 二进制文件\\u2026');", "onStatus?.('Downloading the Antigravity binary\\u2026');")
+        .replace("onStatus?.(`正在安装至 ${distro}\\u2026`);", "onStatus?.(`Installing into ${distro}\\u2026`);");
 }
 
 function cleanIpcHandlersJsContent(content) {
@@ -11565,40 +11676,120 @@ function canWriteAntigravityResources(resourcesDir, entryScript) {
     }
 }
 
-function resignAppOnMac(resourcesDir) {
-    if (process.platform !== 'darwin') return true;
-
-    let targetApp = findMacAppBundle(resourcesDir);
-    if (!targetApp) {
-        console.warn("[警告] 未能识别到 Antigravity.app 目录结构，跳过 macOS 重签名。");
-        return true;
+function resolveRealMacUserHome() {
+    if (typeof process.getuid === 'function' && process.getuid() === 0 && process.env.SUDO_USER && process.env.SUDO_USER !== 'root') {
+        const sudoUser = process.env.SUDO_USER;
+        const dsclRes = runCommandSync('dscl', ['.', '-read', `/Users/${sudoUser}`, 'NFSHomeDirectory']);
+        if (dsclRes.success && dsclRes.stdout) {
+            const match = dsclRes.stdout.match(/NFSHomeDirectory:\s*(\S+)/);
+            if (match && match[1] && fs.existsSync(match[1])) {
+                return match[1];
+            }
+        }
+        const fallbackHome = `/Users/${sudoUser}`;
+        if (fs.existsSync(fallbackHome)) {
+            return fallbackHome;
+        }
     }
+    return process.env.HOME || (process.env.USER ? `/Users/${process.env.USER}` : '');
+}
+
+function detectMacPersistentSigner() {
+    const identity = process.env.AGY_CODESIGN_IDENTITY || 'Antigravity Local Signer';
+    const userHome = resolveRealMacUserHome();
+    const keychainCandidates = userHome
+        ? [
+            path.join(userHome, 'Library', 'Keychains', 'login.keychain-db'),
+            path.join(userHome, 'Library', 'Keychains', 'login.keychain')
+        ]
+        : [];
+    const keychainDb = keychainCandidates.find(p => fs.existsSync(p)) || '';
+    const findArgs = keychainDb
+        ? ['find-identity', '-v', '-p', 'codesigning', keychainDb]
+        : ['find-identity', '-v', '-p', 'codesigning'];
+    const findRes = runCommandSync('security', findArgs);
+    const combinedOut = `${findRes.stdout || ''}\n${findRes.stderr || ''}`;
+    const valid = combinedOut.split(/\r?\n/).some(line => !line.includes('CSSMERR_') && line.includes(`"${identity}"`));
+    return { valid, identity, keychainDb };
+}
+
+function isMachOBinaryFile(filePath) {
     try {
-        targetApp = fs.realpathSync(targetApp);
+        const st = fs.lstatSync(filePath);
+        if (!st.isFile() || st.isSymbolicLink() || st.size < 4) return false;
+        const fd = fs.openSync(filePath, 'r');
+        try {
+            const hdr = Buffer.alloc(8);
+            const bytesRead = fs.readSync(fd, hdr, 0, Math.min(8, st.size), 0);
+            if (bytesRead < 4) return false;
+            const magicBE = hdr.readUInt32BE(0);
+            if (
+                magicBE === 0xfeedface ||
+                magicBE === 0xcefaedfe ||
+                magicBE === 0xfeedfacf ||
+                magicBE === 0xcffaedfe ||
+                magicBE === 0xbebafeca ||
+                magicBE === 0xcafebabf ||
+                magicBE === 0xbfbafeca
+            ) {
+                return true;
+            }
+            if (magicBE === 0xcafebabe && bytesRead >= 8) {
+                const nfatArch = hdr.readUInt32BE(4);
+                return nfatArch >= 1 && nfatArch <= 16;
+            }
+            return false;
+        } finally {
+            fs.closeSync(fd);
+        }
+    } catch (e) {
+        return false;
+    }
+}
+
+function signMacApp(targetApp) {
+    if (process.platform !== 'darwin' || !targetApp) return true;
+
+    let resolvedApp = targetApp;
+    try {
+        resolvedApp = fs.realpathSync(targetApp);
     } catch (e) {}
 
-    console.log(`[签名] 正在清理 macOS 隔离属性并执行自签名: ${targetApp}`);
-    const xattrRes = runCommandSync('xattr', ['-cr', targetApp]);
+    const signer = detectMacPersistentSigner();
+    const signIdentity = signer.valid ? signer.identity : '-';
+    const keychainArgs = (signer.valid && signer.keychainDb) ? ['--keychain', signer.keychainDb] : [];
+
+    if (signer.valid) {
+        console.log(UI_LANG === 'en'
+            ? `[Sign] Clearing quarantine attributes & performing Inside-Out persistent signing (${signIdentity}): ${resolvedApp}`
+            : `[签名] 正在清理 macOS 隔离属性并使用固定证书 (${signIdentity}) 执行 Inside-Out 持久签名: ${resolvedApp}`);
+    } else {
+        console.log(UI_LANG === 'en'
+            ? `[Sign] Clearing quarantine attributes & performing adhoc signing: ${resolvedApp}`
+            : `[签名] 正在清理 macOS 隔离属性并执行自签名 (adhoc): ${resolvedApp}`);
+    }
+
+    const xattrRes = runCommandSync('xattr', ['-cr', resolvedApp]);
     if (!xattrRes.success) {
         console.warn(`[警告] 清理 quarantine 属性时出现提示: ${xattrRes.stderr || xattrRes.stdout}`);
     }
 
-    // 由内而外（Inside-Out）优先重签内部 Frameworks / Dylibs / Helpers，
+    // 由内而外（Inside-Out）优先重签内部 Frameworks / Dylibs / Helpers 与 Resources/bin 下的 Mach-O 二进制，
     // 嵌套的 .framework 与 .app 需带上 --deep 确保其内部动态库及辅助程序完成签名，
     // 避免顶层签名时遗留旧签名导致 dyld 报签名/校验不一致。
-    const frameworksDir = path.join(targetApp, 'Contents', 'Frameworks');
+    const frameworksDir = path.join(resolvedApp, 'Contents', 'Frameworks');
     if (fs.existsSync(frameworksDir)) {
         try {
             const entries = fs.readdirSync(frameworksDir);
             for (const entry of entries) {
                 const fullPath = path.join(frameworksDir, entry);
                 if (entry.endsWith('.framework') || entry.endsWith('.app')) {
-                    const res = runCommandSync('codesign', ['--force', '--deep', '--sign', '-', fullPath]);
+                    const res = runCommandSync('codesign', ['--force', '--deep', ...keychainArgs, '--sign', signIdentity, fullPath]);
                     if (!res.success) {
                         console.warn(`[警告] 重签内部组件 ${entry} 出现提示: ${res.stderr || res.stdout}`);
                     }
                 } else if (entry.endsWith('.dylib')) {
-                    const res = runCommandSync('codesign', ['--force', '--sign', '-', fullPath]);
+                    const res = runCommandSync('codesign', ['--force', ...keychainArgs, '--sign', signIdentity, fullPath]);
                     if (!res.success) {
                         console.warn(`[警告] 重签内部动态库 ${entry} 出现提示: ${res.stderr || res.stdout}`);
                     }
@@ -11609,15 +11800,34 @@ function resignAppOnMac(resourcesDir) {
         }
     }
 
+    const resBinDir = path.join(resolvedApp, 'Contents', 'Resources', 'bin');
+    if (fs.existsSync(resBinDir)) {
+        try {
+            const binEntries = fs.readdirSync(resBinDir);
+            for (const binName of binEntries) {
+                const binPath = path.join(resBinDir, binName);
+                if (isMachOBinaryFile(binPath)) {
+                    const res = runCommandSync('codesign', ['--force', ...keychainArgs, '--sign', signIdentity, binPath]);
+                    if (!res.success) {
+                        console.warn(`[警告] 重签内部二进制 ${binName} 出现提示: ${res.stderr || res.stdout}`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`[警告] 遍历 Resources/bin 目录失败: ${e.message}`);
+        }
+    }
+
     // 注意：绝不能传入 --preserve-metadata=flags,runtime！
     // 否则会保留 Hardened Runtime（硬化运行时），而硬化运行时默认强制执行 Library Validation（库校验）；
-    // 在本地自签名（ad-hoc，-）缺少 Apple Team ID 的情况下，dyld 会因 Team ID 不一致在启动阶段直接终止进程闪退（SIGABRT）。
+    // 在本地自签名/固定证书缺少 Apple Team ID 的情况下，dyld 会因 Team ID 不一致在启动阶段直接终止进程闪退（SIGABRT）。
     const signRes = runCommandSync('codesign', [
         '--force',
         '--deep',
+        ...keychainArgs,
         '--sign',
-        '-',
-        targetApp
+        signIdentity,
+        resolvedApp
     ]);
     if (!signRes.success) {
         console.error(`[错误] macOS 应用签名失败。`);
@@ -11626,8 +11836,34 @@ function resignAppOnMac(resourcesDir) {
         return false;
     }
 
-    console.log(`[√] macOS 应用自签名成功！`);
+    const verifyRes = runCommandSync('codesign', ['--verify', '--deep', '--strict', resolvedApp]);
+    if (!verifyRes.success) {
+        console.error(`[错误] macOS 应用签名完整性校验失败 (codesign --verify --deep --strict)。`);
+        console.error(`详情: ${verifyRes.stderr}\n${verifyRes.stdout}`);
+        return false;
+    }
+
+    if (signer.valid) {
+        console.log(UI_LANG === 'en'
+            ? `[√] macOS persistent certificate signature verified (${signIdentity})!`
+            : `[√] macOS 持久证书代码签名与严格校验通过 (${signIdentity})！`);
+    } else {
+        console.log(UI_LANG === 'en'
+            ? `[√] macOS adhoc signature verified! (Tip: run ./install.sh --setup-cert to enable persistent certificate signing and preserve TCC permissions)`
+            : `[√] macOS 应用自签名成功！（提示：可通过 ./install.sh --setup-cert 启用持久证书签名，防止升级后 TCC 权限失效）`);
+    }
     return true;
+}
+
+function resignAppOnMac(resourcesDir) {
+    if (process.platform !== 'darwin') return true;
+
+    const targetApp = findMacAppBundle(resourcesDir);
+    if (!targetApp) {
+        console.warn("[警告] 未能识别到 Antigravity.app 目录结构，跳过 macOS 重签名。");
+        return true;
+    }
+    return signMacApp(targetApp);
 }
 
 class AsarArchive {
@@ -11795,7 +12031,11 @@ class AsarArchive {
     }
 }
 
-function installLocalization(resourcesDir) {
+function installLocalization(resourcesDir, options = {}) {
+    const activeLang = normalizeUiLang(options.uiLang || UI_LANG);
+    const skipSign = options.skipSign !== undefined ? Boolean(options.skipSign) : SKIP_SIGN_FLAG;
+    const isEn = activeLang === 'en';
+
     const asarPath = path.join(resourcesDir, "app.asar");
     const bakPath = path.join(resourcesDir, "app.asar.bak");
 
@@ -11805,10 +12045,10 @@ function installLocalization(resourcesDir) {
     }
 
     if (!fs.existsSync(bakPath)) {
-        console.log(`[备份] 正在创建官方原始包备份: app.asar.bak ...`);
+        console.log(isEn ? `[Backup] Creating official backup: app.asar.bak ...` : `[备份] 正在创建官方原始包备份: app.asar.bak ...`);
         try {
             fs.copyFileSync(asarPath, bakPath);
-            console.log(`[备份] 备份成功！`);
+            console.log(isEn ? `[Backup] Backup created.` : `[备份] 备份成功！`);
         } catch (e) {
             if (e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS') {
                 reportWritePermissionError(resourcesDir, e, '备份到');
@@ -11820,7 +12060,7 @@ function installLocalization(resourcesDir) {
     }
 
     const sourceAsar = fs.existsSync(bakPath) ? bakPath : asarPath;
-    console.log(`[读取] 正在解析应用包元数据...`);
+    console.log(isEn ? `[Read] Reading app.asar metadata...` : `[读取] 正在解析应用包元数据...`);
 
     const filePatches = {};
 
@@ -11831,13 +12071,16 @@ function installLocalization(resourcesDir) {
         return false;
     }
 
-    console.log(`[修改] 正在向 preload.js 注入汉化代码...`);
+    console.log(isEn ? `[Patch] Injecting UX enhancements (Compact Wide + Office/EPUB Preview) into preload.js...` : `[修改] 正在向 preload.js 注入汉化代码...`);
     const content = preloadBuf.toString('utf-8');
-    const cleanedContent = cleanJsContent(content).replace(
-        "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', items),",
-        "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', typeof globalThis.__agTranslateContextMenuItems === 'function' ? globalThis.__agTranslateContextMenuItems(items) : items),"
-    );
-    const translationJs = generateJs();
+    const baseCleanPreload = cleanJsContent(content);
+    const cleanedContent = isEn
+        ? baseCleanPreload
+        : baseCleanPreload.replace(
+            "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', items),",
+            "showContextMenu: (items) => electron_1.ipcRenderer.invoke('window:show-context-menu', typeof globalThis.__agTranslateContextMenuItems === 'function' ? globalThis.__agTranslateContextMenuItems(items) : items),"
+        );
+    const translationJs = generateJs(activeLang);
     const subframeLocalizationJs = `"use strict";
 (() => {
     try {
@@ -11862,7 +12105,9 @@ ${translationJs}
 
     try {
         new vm.Script(translationJs);
-        new vm.Script(subframeLocalizationJs);
+        if (!isEn) {
+            new vm.Script(subframeLocalizationJs);
+        }
     } catch (syntaxErr) {
         console.error(`[致命错误] 生成的汉化注入脚本存在语法错误，已中止注入以避免客户端崩溃: ${syntaxErr.message}`);
         console.error(syntaxErr.stack);
@@ -11870,15 +12115,18 @@ ${translationJs}
     }
 
     filePatches["dist/preload.js"] = cleanedContent + "\n" + translationJs;
-    console.log(`[修改] preload.js 注入成功！`);
+    console.log(isEn ? `[Patch] preload.js updated.` : `[修改] preload.js 注入成功！`);
 
     // 2. dist/menu.js
     const menuBuf = AsarArchive.readFile(sourceAsar, "dist/menu.js");
     if (menuBuf) {
-        console.log(`[修改] 正在向 menu.js 注入菜单汉化代码...`);
         let menuContent = menuBuf.toString('utf-8');
         const menuCleaned = cleanMenuJsContent(menuContent);
-        const menuTranslationJs = `
+        if (isEn) {
+            filePatches["dist/menu.js"] = menuCleaned;
+        } else {
+            console.log(`[修改] 正在向 menu.js 注入菜单汉化代码...`);
+            const menuTranslationJs = `
     ${MENU_SIGNATURE_START}
     const translations = {
         'File': '文件',
@@ -11945,32 +12193,35 @@ ${translationJs}
     ${MENU_SIGNATURE_END}
     `;
 
-        const targetStr = "electron_1.Menu.setApplicationMenu(menu);";
-        const idx = menuCleaned.indexOf(targetStr);
-        if (idx !== -1) {
-            let patchedMenuContent = menuCleaned.substring(0, idx) + menuTranslationJs + "\n    " + menuCleaned.substring(idx);
-            patchedMenuContent = patchedMenuContent
-                .replace("return { label: 'Connect to WSL', submenu };", "return { label: '连接至 WSL', submenu };")
-                .replace("return { label: 'Reopen Locally', click: () => relaunchWithWslDistro('') };", "return { label: '在本地重新打开', click: () => relaunchWithWslDistro('') };");
-            filePatches["dist/menu.js"] = patchedMenuContent;
-            console.log(`[修改] 菜单汉化注入成功！`);
-        } else {
-            console.warn(`[警告] 未能在 menu.js 中找到设定的插入点。`);
+            const targetStr = "electron_1.Menu.setApplicationMenu(menu);";
+            const idx = menuCleaned.indexOf(targetStr);
+            if (idx !== -1) {
+                let patchedMenuContent = menuCleaned.substring(0, idx) + menuTranslationJs + "\n    " + menuCleaned.substring(idx);
+                patchedMenuContent = patchedMenuContent
+                    .replace("return { label: 'Connect to WSL', submenu };", "return { label: '连接至 WSL', submenu };")
+                    .replace("return { label: 'Reopen Locally', click: () => relaunchWithWslDistro('') };", "return { label: '在本地重新打开', click: () => relaunchWithWslDistro('') };");
+                filePatches["dist/menu.js"] = patchedMenuContent;
+                console.log(`[修改] 菜单汉化注入成功！`);
+            } else {
+                console.warn(`[警告] 未能在 menu.js 中找到设定的插入点。`);
+            }
         }
     }
 
     // 3. dist/tray.js
     const trayBuf = AsarArchive.readFile(sourceAsar, "dist/tray.js");
     if (trayBuf) {
-        console.log(`[修改] 正在向 tray.js 注入任务栏菜单汉化...`);
         let trayContent = trayBuf.toString('utf-8');
         let trayCleaned = cleanTrayJsContent(trayContent);
-
-        let trayPatched = trayCleaned;
-        const createTrayMatch = trayCleaned.match(/function\s+createTray\s*\(\s*actions(?:\s*,\s*onClick)?\s*\)\s*\{/);
-        if (createTrayMatch) {
-            const matchedFuncHeader = createTrayMatch[0];
-            const replacementCreate = `${matchedFuncHeader}
+        if (isEn) {
+            filePatches["dist/tray.js"] = trayCleaned;
+        } else {
+            console.log(`[修改] 正在向 tray.js 注入任务栏菜单汉化...`);
+            let trayPatched = trayCleaned;
+            const createTrayMatch = trayCleaned.match(/function\s+createTray\s*\(\s*actions(?:\s*,\s*onClick)?\s*\)\s*\{/);
+            if (createTrayMatch) {
+                const matchedFuncHeader = createTrayMatch[0];
+                const replacementCreate = `${matchedFuncHeader}
     ${TRAY_SIGNATURE_START}
     const translations = {
         'No agents running': '无运行中的智能体',
@@ -11985,13 +12236,13 @@ ${translationJs}
         }
     }
     ${TRAY_SIGNATURE_END}`;
-            trayPatched = trayCleaned.replace(matchedFuncHeader, replacementCreate);
-        } else {
-            console.warn(`[警告] 未能在 tray.js 中找到 createTray 函数的插入点。`);
-        }
+                trayPatched = trayCleaned.replace(matchedFuncHeader, replacementCreate);
+            } else {
+                console.warn(`[警告] 未能在 tray.js 中找到 createTray 函数的插入点。`);
+            }
 
-        const targetInsert = "function insertTrayMenuItem(position, options) {";
-        const replacementInsert = `function insertTrayMenuItem(position, options) {
+            const targetInsert = "function insertTrayMenuItem(position, options) {";
+            const replacementInsert = `function insertTrayMenuItem(position, options) {
     ${TRAY_SIGNATURE_START}
     const asyncTranslations = {
         'Connect to WSL': '连接至 WSL',
@@ -12002,89 +12253,110 @@ ${translationJs}
     }
     ${TRAY_SIGNATURE_END}`;
 
-        trayPatched = trayPatched.replace(targetInsert, replacementInsert);
+            trayPatched = trayPatched.replace(targetInsert, replacementInsert);
 
-        const countRegex = /countItem\.label\s*=\s*\([\s\S]*?' running';/g;
-        const replacementCount = "countItem.label = count > 0 ? `${count} 个智能体运行中` : '无运行中的智能体';";
-        trayPatched = trayPatched.replace(countRegex, replacementCount);
+            const countRegex = /countItem\.label\s*=\s*\([\s\S]*?' running';/g;
+            const replacementCount = "countItem.label = count > 0 ? `${count} 个智能体运行中` : '无运行中的智能体';";
+            trayPatched = trayPatched.replace(countRegex, replacementCount);
 
-        filePatches["dist/tray.js"] = trayPatched;
-        console.log(`[修改] 任务栏菜单汉化注入成功！`);
+            filePatches["dist/tray.js"] = trayPatched;
+            console.log(`[修改] 任务栏菜单汉化注入成功！`);
+        }
     }
 
     // 4. dist/updater.js
     const updaterBuf = AsarArchive.readFile(sourceAsar, "dist/updater.js");
     if (updaterBuf) {
-        console.log(`[修改] 正在向 updater.js 注入更新弹窗及菜单状态汉化...`);
-        let updaterContent = updaterBuf.toString('utf-8');
-        const targetOptions = `                title: 'Check for Updates',
+        let updaterContent = cleanUpdaterJsContent(updaterBuf.toString('utf-8'));
+        if (isEn) {
+            filePatches["dist/updater.js"] = updaterContent;
+        } else {
+            console.log(`[修改] 正在向 updater.js 注入更新弹窗及菜单状态汉化...`);
+            const targetOptions = `                title: 'Check for Updates',
                 message: 'No updates available',
                 buttons: ['OK'],`;
-        const replacementOptions = `                title: '检查更新',
+            const replacementOptions = `                title: '检查更新',
                 message: '暂无可用更新',
                 buttons: ['确定'],`;
 
-        updaterContent = updaterContent
-            .replace(targetOptions, replacementOptions)
-            .replace('MenuUpdateStep["CheckForUpdates"] = "Check for Updates";', 'MenuUpdateStep["CheckForUpdates"] = "检查更新";')
-            .replace('MenuUpdateStep["CheckingForUpdates"] = "Checking for Updates...";', 'MenuUpdateStep["CheckingForUpdates"] = "正在检查更新...";')
-            .replace('MenuUpdateStep["DownloadingUpdate"] = "Downloading Update...";', 'MenuUpdateStep["DownloadingUpdate"] = "正在下载更新...";')
-            .replace('MenuUpdateStep["RestartToUpdate"] = "Restart to Update";', 'MenuUpdateStep["RestartToUpdate"] = "重启以更新";');
-        filePatches["dist/updater.js"] = updaterContent;
-        console.log(`[修改] 更新弹窗及菜单状态汉化注入成功！`);
+            updaterContent = updaterContent
+                .replace(targetOptions, replacementOptions)
+                .replace('MenuUpdateStep["CheckForUpdates"] = "Check for Updates";', 'MenuUpdateStep["CheckForUpdates"] = "检查更新";')
+                .replace('MenuUpdateStep["CheckingForUpdates"] = "Checking for Updates...";', 'MenuUpdateStep["CheckingForUpdates"] = "正在检查更新...";')
+                .replace('MenuUpdateStep["DownloadingUpdate"] = "Downloading Update...";', 'MenuUpdateStep["DownloadingUpdate"] = "正在下载更新...";')
+                .replace('MenuUpdateStep["RestartToUpdate"] = "Restart to Update";', 'MenuUpdateStep["RestartToUpdate"] = "重启以更新";');
+            filePatches["dist/updater.js"] = updaterContent;
+            console.log(`[修改] 更新弹窗及菜单状态汉化注入成功！`);
+        }
     }
 
     // 5. dist/provisionSplash.js
     const splashBuf = AsarArchive.readFile(sourceAsar, "dist/provisionSplash.js");
     if (splashBuf) {
-        console.log(`[修改] 正在向 provisionSplash.js 注入 WSL 引导遮罩汉化...`);
-        let splashContent = splashBuf.toString('utf-8');
-        splashContent = splashContent.replace('<div>Setting up WSL: ${escapeHtml(distro)}</div>', '<div>正在设置 WSL：${escapeHtml(distro)}</div>');
-        filePatches["dist/provisionSplash.js"] = splashContent;
-        console.log(`[修改] WSL 引导遮罩汉化注入成功！`);
+        let splashContent = cleanProvisionSplashJsContent(splashBuf.toString('utf-8'));
+        if (isEn) {
+            filePatches["dist/provisionSplash.js"] = splashContent;
+        } else {
+            console.log(`[修改] 正在向 provisionSplash.js 注入 WSL 引导遮罩汉化...`);
+            splashContent = splashContent.replace('<div>Setting up WSL: ${escapeHtml(distro)}</div>', '<div>正在设置 WSL：${escapeHtml(distro)}</div>');
+            filePatches["dist/provisionSplash.js"] = splashContent;
+            console.log(`[修改] WSL 引导遮罩汉化注入成功！`);
+        }
     }
 
     // 6. dist/wsl.js
     const wslBuf = AsarArchive.readFile(sourceAsar, "dist/wsl.js");
     if (wslBuf) {
-        console.log(`[修改] 正在向 wsl.js 注入 WSL 服务端安装提示汉化...`);
-        let wslContent = wslBuf.toString('utf-8');
-        wslContent = wslContent
-            .replace("onStatus?.('Downloading the Antigravity binary\\u2026');", "onStatus?.('正在下载 Antigravity 二进制文件\\u2026');")
-            .replace("onStatus?.(`Installing into ${distro}\\u2026`);", "onStatus?.(`正在安装至 ${distro}\\u2026`);");
-        filePatches["dist/wsl.js"] = wslContent;
-        console.log(`[修改] WSL 服务端安装提示汉化注入成功！`);
+        let wslContent = cleanWslJsContent(wslBuf.toString('utf-8'));
+        if (isEn) {
+            filePatches["dist/wsl.js"] = wslContent;
+        } else {
+            console.log(`[修改] 正在向 wsl.js 注入 WSL 服务端安装提示汉化...`);
+            wslContent = wslContent
+                .replace("onStatus?.('Downloading the Antigravity binary\\u2026');", "onStatus?.('正在下载 Antigravity 二进制文件\\u2026');")
+                .replace("onStatus?.(`Installing into ${distro}\\u2026`);", "onStatus?.(`正在安装至 ${distro}\\u2026`);");
+            filePatches["dist/wsl.js"] = wslContent;
+            console.log(`[修改] WSL 服务端安装提示汉化注入成功！`);
+        }
     }
 
     // 7. dist/main.js
     const mainBuf = AsarArchive.readFile(sourceAsar, "dist/main.js");
     if (mainBuf) {
-        console.log(`[修改] 正在向 main.js 注入主进程退出确认与系统弹窗汉化...`);
-        const mainContent = cleanMainJsContent(mainBuf.toString('utf-8'))
-            .replace("await electron_1.dialog.showErrorBox('Binary not found', msg);", "await electron_1.dialog.showErrorBox('未找到可执行文件', msg);")
-            .replace("title: 'WSL distro not found',", "title: '未找到 WSL 分发版',")
-            .replace("`The WSL distro \"${WSL_DISTRO}\" is no longer installed.`", "`WSL 分发版 \"${WSL_DISTRO}\" 已不再安装.`")
-            .replace("detail: 'Antigravity opened on Windows instead.',", "detail: 'Antigravity 已改为在 Windows 本地打开.',")
-            .replace("await electron_1.dialog.showErrorBox('WSL setup failed', msg);", "await electron_1.dialog.showErrorBox('WSL 设置失败', msg);")
-            .replace("`Failed to install the server into WSL distro \"${WSL_DISTRO}\":\\n${err.message}`", "`未能将服务端安装至 WSL 分发版 \"${WSL_DISTRO}\"：\\n${err.message}`")
-            .replace("await electron_1.dialog.showErrorBox('Startup failed', msg);", "await electron_1.dialog.showErrorBox('启动失败', msg);")
-            .replace(
-                /(buttons:\s*)\['Cancel',\s*'Quit'\](,\s*defaultId:\s*1,\s*cancelId:\s*0,\s*title:\s*)'Confirm Quit'(,\s*message:\s*)'Are you sure you want to quit\?'(,\s*detail:\s*)'There may be agents or background tasks running\.'/g,
-                "$1['取消', '退出']$2'确认退出'$3'确定要退出吗？'$4'当前可能仍有智能体或后台任务正在运行.'"
-            );
-        filePatches["dist/main.js"] = mainContent;
-        console.log(`[修改] 主进程退出确认与系统弹窗注入成功！`);
+        const mainCleaned = cleanMainJsContent(mainBuf.toString('utf-8'));
+        if (isEn) {
+            filePatches["dist/main.js"] = mainCleaned;
+        } else {
+            console.log(`[修改] 正在向 main.js 注入主进程退出确认与系统弹窗汉化...`);
+            const mainContent = mainCleaned
+                .replace("await electron_1.dialog.showErrorBox('Binary not found', msg);", "await electron_1.dialog.showErrorBox('未找到可执行文件', msg);")
+                .replace("title: 'WSL distro not found',", "title: '未找到 WSL 分发版',")
+                .replace("`The WSL distro \"${WSL_DISTRO}\" is no longer installed.`", "`WSL 分发版 \"${WSL_DISTRO}\" 已不再安装.`")
+                .replace("detail: 'Antigravity opened on Windows instead.',", "detail: 'Antigravity 已改为在 Windows 本地打开.',")
+                .replace("await electron_1.dialog.showErrorBox('WSL setup failed', msg);", "await electron_1.dialog.showErrorBox('WSL 设置失败', msg);")
+                .replace("`Failed to install the server into WSL distro \"${WSL_DISTRO}\":\\n${err.message}`", "`未能将服务端安装至 WSL 分发版 \"${WSL_DISTRO}\"：\\n${err.message}`")
+                .replace("await electron_1.dialog.showErrorBox('Startup failed', msg);", "await electron_1.dialog.showErrorBox('启动失败', msg);")
+                .replace(
+                    /(buttons:\s*)\['Cancel',\s*'Quit'\](,\s*defaultId:\s*1,\s*cancelId:\s*0,\s*title:\s*)'Confirm Quit'(,\s*message:\s*)'Are you sure you want to quit\?'(,\s*detail:\s*)'There may be agents or background tasks running\.'/g,
+                    "$1['取消', '退出']$2'确认退出'$3'确定要退出吗？'$4'当前可能仍有智能体或后台任务正在运行.'"
+                );
+            filePatches["dist/main.js"] = mainContent;
+            console.log(`[修改] 主进程退出确认与系统弹窗注入成功！`);
+        }
     }
 
     // 8. dist/utils.js
     const utilsBuf = AsarArchive.readFile(sourceAsar, "dist/utils.js");
     if (utilsBuf) {
-        console.log(`[修改] 正在向 utils.js 注入 plugin:// 子框架动态汉化钩子...`);
         let utilsContent = cleanUtilsJsContent(utilsBuf.toString('utf-8'));
-        const onAnchor = "hubContents.on?.('page-title-updated', handleTitleUpdate);";
-        const offAnchor = "hubContents.off?.('page-title-updated', handleTitleUpdate);";
-        if (utilsContent.includes(onAnchor) && utilsContent.includes(offAnchor)) {
-            const onHookJs = `${UTILS_SUBFRAME_SIGNATURE_START}
+        if (isEn) {
+            filePatches["dist/utils.js"] = utilsContent;
+        } else {
+            console.log(`[修改] 正在向 utils.js 注入 plugin:// 子框架动态汉化钩子...`);
+            const onAnchor = "hubContents.on?.('page-title-updated', handleTitleUpdate);";
+            const offAnchor = "hubContents.off?.('page-title-updated', handleTitleUpdate);";
+            if (utilsContent.includes(onAnchor) && utilsContent.includes(offAnchor)) {
+                const onHookJs = `${UTILS_SUBFRAME_SIGNATURE_START}
     let cachedSubframeLocalizationScript = null;
     const findSubframeById = (frame, processId, routingId) => {
         if (!frame) {
@@ -12139,30 +12411,32 @@ ${translationJs}
         catch (_err) {}
     };
     hubContents.on?.('did-frame-finish-load', localizePluginSubframe);${UTILS_SUBFRAME_SIGNATURE_END}`;
-            const offHookJs = `${UTILS_SUBFRAME_SIGNATURE_START}
+                const offHookJs = `${UTILS_SUBFRAME_SIGNATURE_START}
         hubContents.off?.('did-frame-finish-load', localizePluginSubframe);
         cachedSubframeLocalizationScript = null;${UTILS_SUBFRAME_SIGNATURE_END}`;
-            utilsContent = utilsContent
-                .replace(onAnchor, onAnchor + onHookJs)
-                .replace(offAnchor, offAnchor + offHookJs);
-            filePatches["dist/utils.js"] = utilsContent;
-            filePatches["dist/subframeLocalizationPreload.js"] = subframeLocalizationJs;
-            console.log(`[修改] plugin:// 子框架动态汉化钩子注入成功！`);
-        } else {
-            console.warn(`[警告] 未能在 utils.js 中找到 did-frame-finish-load 注入点。`);
+                utilsContent = utilsContent
+                    .replace(onAnchor, onAnchor + onHookJs)
+                    .replace(offAnchor, offAnchor + offHookJs);
+                filePatches["dist/utils.js"] = utilsContent;
+                filePatches["dist/subframeLocalizationPreload.js"] = subframeLocalizationJs;
+                console.log(`[修改] plugin:// 子框架动态汉化钩子注入成功！`);
+            } else {
+                console.warn(`[警告] 未能在 utils.js 中找到 did-frame-finish-load 注入点。`);
+            }
         }
     }
 
     // 9. dist/ipcHandlers.js
     const ipcHandlersBuf = AsarArchive.readFile(sourceAsar, "dist/ipcHandlers.js");
     if (ipcHandlersBuf) {
-        console.log(`[修改] 正在向 ipcHandlers.js 注入原生右键菜单汉化...`);
         let ipcContent = ipcHandlersBuf.toString('utf-8');
         let ipcCleaned = cleanIpcHandlersJsContent(ipcContent);
-        const contextMenuMatch = ipcCleaned.match(/function\s+buildContextMenuTemplate\s*\(\s*items\s*,\s*onSelect\s*\)\s*\{/);
-        if (contextMenuMatch) {
-            const matchedHeader = contextMenuMatch[0];
-            const replacementHeader = `${matchedHeader}
+        if (!isEn) {
+            console.log(`[修改] 正在向 ipcHandlers.js 注入原生右键菜单汉化...`);
+            const contextMenuMatch = ipcCleaned.match(/function\s+buildContextMenuTemplate\s*\(\s*items\s*,\s*onSelect\s*\)\s*\{/);
+            if (contextMenuMatch) {
+                const matchedHeader = contextMenuMatch[0];
+                const replacementHeader = `${matchedHeader}
     ${IPC_CONTEXT_MENU_SIGNATURE_START}
     const contextMenuTranslations = {
         "Rename": "重命名",
@@ -12256,16 +12530,17 @@ ${translationJs}
         items = translateIpcContextMenuItems(items);
     }
     ${IPC_CONTEXT_MENU_SIGNATURE_END}`;
-            ipcCleaned = ipcCleaned.replace(matchedHeader, () => replacementHeader);
-            console.log(`[修改] 原生右键菜单汉化注入成功！`);
-        } else {
-            console.warn(`[警告] 未能在 ipcHandlers.js 中找到 buildContextMenuTemplate 函数的插入点。`);
-        }
+                ipcCleaned = ipcCleaned.replace(matchedHeader, () => replacementHeader);
+                console.log(`[修改] 原生右键菜单汉化注入成功！`);
+            } else {
+                console.warn(`[警告] 未能在 ipcHandlers.js 中找到 buildContextMenuTemplate 函数的插入点。`);
+            }
 
-        ipcCleaned = ipcCleaned
-            .replace("electron_1.dialog.showErrorBox('Cannot open folder', t.error);", "electron_1.dialog.showErrorBox('无法打开文件夹', t.error);")
-            .replace("message: 'Folder is on the Windows filesystem',", "message: '文件夹位于 Windows 文件系统中',")
-            .replace("title: 'Open workspace',", "title: '打开工作区',");
+            ipcCleaned = ipcCleaned
+                .replace("electron_1.dialog.showErrorBox('Cannot open folder', t.error);", "electron_1.dialog.showErrorBox('无法打开文件夹', t.error);")
+                .replace("message: 'Folder is on the Windows filesystem',", "message: '文件夹位于 Windows 文件系统中',")
+                .replace("title: 'Open workspace',", "title: '打开工作区',");
+        }
 
         const regIpcMatch = ipcCleaned.match(/function\s+registerIpcHandlers\s*\([^)]*\)\s*\{/);
         if (regIpcMatch) {
@@ -12274,14 +12549,16 @@ ${translationJs}
             const officeIpcBlock = [
                 IPC_OFFICE_PREVIEW_SIGNATURE_START,
                 "    try {",
-                "        (" + __agRegisterOfficeIpcHandlers.toString() + ")(electron_1, url_1, wsl_1);",
+                "        (" + __agRegisterOfficeIpcHandlers.toString() + ")(electron_1, url_1, wsl_1, " + JSON.stringify(activeLang) + ");",
                 "    } catch (e) {",
                 "        console.error('[AG-UX Office IPC] Register failed:', e);",
                 "    }",
                 "    " + IPC_OFFICE_PREVIEW_SIGNATURE_END
             ].join("\n");
             ipcCleaned = ipcCleaned.substring(0, regPos + regHeader.length) + officeIpcBlock + ipcCleaned.substring(regPos + regHeader.length);
-            console.log(`[修改] Office 文档速览与默认应用打开 IPC 注入成功！`);
+            console.log(isEn
+                ? `[Patch] Office/EPUB preview IPC registered in ipcHandlers.js.`
+                : `[修改] Office 文档速览与默认应用打开 IPC 注入成功！`);
         } else {
             console.warn(`[警告] 未能在 ipcHandlers.js 中找到 registerIpcHandlers 函数的插入点。`);
         }
@@ -12298,7 +12575,7 @@ ${translationJs}
     // 10. 打包并写入 app.asar
     const tempAsarPath = path.join(resourcesDir, "app.asar.tmp");
     try {
-        console.log(`[打包] 正在将修改后的内容打包回 app.asar...`);
+        console.log(isEn ? `[Pack] Writing updated bundle back to app.asar...` : `[打包] 正在将修改后的内容打包回 app.asar...`);
         AsarArchive.patchArchive(sourceAsar, tempAsarPath, filePatches);
 
         try {
@@ -12331,16 +12608,21 @@ ${translationJs}
         try { fs.rmSync(legacyTempDir, { recursive: true, force: true }); } catch (e) {}
     }
 
-    console.log(`[√] Antigravity 汉化部署完成！`);
+    console.log(isEn ? `[√] Antigravity Desktop Exo (English UX) deployed!` : `[√] Antigravity 汉化部署完成！`);
     if (process.platform === 'darwin') {
-        if (!resignAppOnMac(resourcesDir)) {
+        if (skipSign) {
+            console.log(isEn
+                ? `[Skip] --skip-sign passed; deferring macOS code signing to outer orchestrator.`
+                : `[跳过] 检测到 --skip-sign 参数，跳过当前层 macOS 重签名（交由外层编排统一签名）。`);
+        } else if (!resignAppOnMac(resourcesDir)) {
             return false;
         }
     }
     return true;
 }
 
-function restoreLocalization(resourcesDir) {
+function restoreLocalization(resourcesDir, options = {}) {
+    const skipSign = options.skipSign !== undefined ? Boolean(options.skipSign) : SKIP_SIGN_FLAG;
     const asarPath = path.join(resourcesDir, "app.asar");
     const bakPath = path.join(resourcesDir, "app.asar.bak");
 
@@ -12363,7 +12645,9 @@ function restoreLocalization(resourcesDir) {
     }
     console.log("[√] 官方 app.asar 已成功恢复！");
     if (process.platform === 'darwin') {
-        if (!resignAppOnMac(resourcesDir)) {
+        if (skipSign) {
+            console.log("[跳过] 检测到 --skip-sign 参数，跳过 macOS 重签名。");
+        } else if (!resignAppOnMac(resourcesDir)) {
             return false;
         }
     }
@@ -12375,6 +12659,7 @@ function main() {
         const shellScripts = [
             'install.sh',
             'uninstall.sh',
+            'scripts/macos_codesign.sh',
             '双击安装中文汉化.command',
             '双击卸载还原官方英文.command'
         ];
@@ -12391,6 +12676,8 @@ function main() {
     let huifu = false;
     let manualDir = "";
     let noKill = false;
+    let skipSign = false;
+    let noRelaunch = false;
     let checkWriteOnly = false;
 
     const args = process.argv.slice(2);
@@ -12400,9 +12687,17 @@ function main() {
         } else if (args[i] === '--install-dir') {
             manualDir = args[i + 1] || "";
             i++;
+        } else if (args[i].startsWith('--install-dir=')) {
+            manualDir = args[i].slice('--install-dir='.length);
         } else if (args[i] === '--no-kill') {
             noKill = true;
+        } else if (args[i] === '--skip-sign') {
+            skipSign = true;
+        } else if (args[i] === '--no-relaunch') {
+            noRelaunch = true;
         } else if (args[i] === '--brand-title') {
+            i++;
+        } else if (args[i] === '--lang') {
             i++;
         } else if (args[i] === '--check-write') {
             checkWriteOnly = true;
@@ -12494,18 +12789,20 @@ function main() {
 
     let success = false;
     if (huifu) {
-        console.log("====== 正在卸载中文汉化，恢复官方原版 ======");
-        success = restoreLocalization(resourcesDir);
+        console.log("====== 正在卸载补丁，恢复官方原版 ======");
+        success = restoreLocalization(resourcesDir, { skipSign });
     } else {
-        console.log("====== 正在安装 Antigravity 中文汉化 ======");
-        success = installLocalization(resourcesDir);
+        console.log(UI_LANG === 'en'
+            ? "====== Installing Antigravity Desktop Exo (English UX Mode) ======"
+            : "====== 正在安装 Antigravity 中文汉化与 UX 增强 ======");
+        success = installLocalization(resourcesDir, { uiLang: UI_LANG, skipSign });
     }
 
     if (!success) {
         process.exit(1);
     }
 
-    if (success && wasAppRunning && !noKill) {
+    if (success && wasAppRunning && !noKill && !skipSign && !noRelaunch) {
         console.log("\n[启动] 检测到安装前 Antigravity 客户端处于开启状态，正在重新启动客户端...");
         try {
             let launched = false;

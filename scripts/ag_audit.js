@@ -215,7 +215,7 @@ function auditDictionaries() {
 // 2. 注入脚本生成只读沙箱校验 (engine)
 // ---------------------------------------------------------------------------
 
-/** 校验 localization_engine.js 的 generateJs() 编译合法性（不执行安装） */
+/** 校验 localization_engine.js 的 generateJs('zh'|'en') 编译合法性（不执行安装） */
 function auditEngineScript() {
   const engine = loadEngineSandbox();
   if (!engine || typeof engine.sandbox.generateJs !== 'function') {
@@ -223,12 +223,22 @@ function auditEngineScript() {
   }
 
   try {
-    const generated = engine.sandbox.generateJs();
-    new vm.Script(generated, { filename: 'preload_injection_preview.js' });
+    const generatedZh = engine.sandbox.generateJs('zh');
+    new vm.Script(generatedZh, { filename: 'preload_injection_preview_zh.js' });
+
+    const generatedEn = engine.sandbox.generateJs('en');
+    new vm.Script(generatedEn, { filename: 'preload_injection_preview_en.js' });
+
+    if (!generatedEn.includes('const AG_EXO_LANG = "en";') || !generatedEn.includes('ag_ux_compact_wide')) {
+      return { ok: false, error: 'generateJs("en") 缺少英文纯增强开关或紧凑宽屏模块标记' };
+    }
+
     return {
       ok: true,
-      scriptBytes: Buffer.byteLength(generated, 'utf8'),
-      scriptLines: generated.split('\n').length
+      scriptBytes: Buffer.byteLength(generatedZh, 'utf8'),
+      scriptLines: generatedZh.split('\n').length,
+      enScriptBytes: Buffer.byteLength(generatedEn, 'utf8'),
+      enScriptLines: generatedEn.split('\n').length
     };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -740,7 +750,8 @@ function printDictsReport(res) {
 
 function printEngineReport(res) {
   if (res.ok) {
-    console.log(`generateJs() 只读沙箱编译通过 (${res.scriptBytes} bytes, ${res.scriptLines} 行)`);
+    console.log(`generateJs('zh') 只读沙箱编译通过 (${res.scriptBytes} bytes, ${res.scriptLines} 行)`);
+    console.log(`generateJs('en') 只读沙箱编译通过 (${res.enScriptBytes} bytes, ${res.enScriptLines} 行)`);
   } else {
     console.error(`[!] generateJs() 编译失败: ${res.error}`);
   }

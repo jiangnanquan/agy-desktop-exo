@@ -2,6 +2,19 @@
 
 本规范适用于参与本项目的所有 AI 智能体与贡献者。核心目标是在绝不破坏 Antigravity 原生功能、用户私有内容、技术标识符及渲染层性能的前提下，提供自然、完整且具备高可维护性的简体中文本地化体验。
 
+## 0. 安装与用户配置请求路由（AI 交互式 SOP）
+
+接手用户指令时，AI 必须首先区分**「用户部署配置」**与**「项目源码维护」**两类意图，严格按对应规程执行：
+
+1. **用户侧安装 / 配置 / 切换语言 / 开启插件 / 修复权限**：
+   - 凡用户要求“帮我安装 / 升级 / 配置本套件”、“切换英文原版界面（`--lang en`）或简体中文汉化（`--lang zh`）”、“开启或移除 Context Pro 上下文与蜂群遥测插件”、“配置蜂群审计规则”或“修复 macOS 升级/打补丁后掉完全磁盘访问权限”时，**必须先完整读取并严格遵循 [`INSTALL_SOP.md`](INSTALL_SOP.md)**。
+   - **先问后配**：必须先按 [`INSTALL_SOP.md`](INSTALL_SOP.md) 清单向用户提问确认界面语言、模块组合、macOS 持久签名证书（`Darwin` 系统）及可选配置。
+   - **宿主自保双阶段铁律**：若当前 AI 运行在 **Antigravity Desktop 桌面客户端内部会话**中，严禁直接执行改写 `app.asar` 的 `./install.sh` / `./uninstall.sh` 主流程（防杀死当前宿主会话）；必须在会话内仅执行**阶段 A**（环境检查、`./install.sh --setup-cert`、写入 `~/.gemini/context-pro-config.json`），随后输出复制即用的**阶段 B 独立外部终端命令**交由用户粘贴运行。仅在外部独立 CLI 终端会话中才可直接代用户跑完 `./install.sh`。
+2. **开发者侧补充翻译 / 修复漏译 / 升级版本词典 / 修改汉化引擎**：
+   - 凡涉及词典增删改、漏译截图修复、官方客户端版本升级适配、插件市场词条同步或 `localization_engine.js` 修改时，**严格遵守下文第 1～7 节开发规范**（开发验证期间严禁直接执行安装脚本，统一走 `node scripts/ag_audit.js` 只读沙箱质检）。
+3. **`Context Pro` 插件源码开发与维护**：
+   - 凡涉及 `plugins/desktop-context/` 子目录的代码或界面修改时，**严格遵守下文第 8 节开发与测试边界**。
+
 ## 1. 当前目标与权威基准
 
 - **当前版本**：当前汉化发布版本为 **v2.33.0**，匹配官方 **Antigravity v2.33.0** 客户端。当前版本独立词典固定为 `dicts/release.json`（文件名不随版本变化，版本号仅在本文件与 `README.md` 中维护）；请始终保持版本号、发布日期与 `README.md` 一致。
@@ -68,3 +81,14 @@
 
 - **词典归属**：官方插件市场文案专用分包字典为 `dicts/marketplace_plugins.json`。
 - **专项技能边界**：插件市场同步与审计技能（[`.agents/skills/sync-marketplace-plugins/`](.agents/skills/sync-marketplace-plugins/SKILL.md)）专用于官方插件市场的全量同步与审计比对，**严格仅在用户明确要求官方市场插件同步/审计插件市场缓存或涉及的翻译文案命中专用分包字典处理 `dicts/marketplace_plugins.json` 时按需激活，常规零散界面汉化严禁预载或调用**。
+
+## 8. `plugins/desktop-context`（Context Pro）开发与测试边界
+
+- **模块职责**：`plugins/desktop-context/` 维护零 CDP 原生 Electron IPC 轻桥接与原生 Sidecar 上下文遥测及蜂群全景雷达插件（`Context Pro`，涵盖顶栏实时遥测胶囊、配额重置倒计时、输入框圆环与 3 分钟缓存 TTL 三色预警、Cache Bust 账本、逐轮工具 Token 检查器及 `[Session] | [Swarm Radar]` 面板）。
+- **中英双语严格对齐**：所有 UI 组件、状态提示、表头与交互文案的改动**必须同时维护并保持 `zh` / `en` 双语字典键值严格对齐**，确保 `--lang en` 原版英文用户、`~/.gemini/context-pro-config.json` 语言配置及侧边栏右上角 `中 / EN` 一键实时切换零漏译、零单语硬编码残留。
+- **严禁硬编码个人私有模型规则**：严禁在插件源码（JS / Python / HTML）中硬编码任何个人或特定团队私有的模型禁用/告警名称规则；所有蜂群工兵模型合规审计逻辑必须统一读取用户侧 `~/.gemini/context-pro-config.json` 中的 `audit_rules`（`forbidden_patterns`、`warn_worker_patterns`、`safe_worker_patterns`、`exempt_role_keywords`），且出厂默认保持 `enabled: false`。
+- **交付前双端单测门禁**：修改 `plugins/desktop-context/` 下任何文件后，必须同时通过 Python 与 Node.js 自动化测试套件：
+  ```bash
+  python3 -m unittest discover -s plugins/desktop-context/tests
+  node --test plugins/desktop-context/tests/*.test.mjs
+  ```

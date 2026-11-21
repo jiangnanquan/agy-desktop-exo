@@ -1,0 +1,2503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Usage</title>
+<script src="/preload.js"></script>
+<style>
+  :root {
+    --c-system: #9aa0a6;
+    --c-user: #a8c7fa;
+    --c-agent: #4c8df6;
+    --c-tool: #f9ab00;
+    --c-custom: #c58af9;
+    --c-sysmsg: #f28b82;
+    --fg: var(--foreground, #e3e3e3);
+    --dim: var(--muted-foreground, #9aa0a6);
+    --line: var(--border, rgba(127, 127, 127, .22));
+    --empty: color-mix(in srgb, var(--dim) 28%, transparent);
+    --surface: color-mix(in srgb, var(--fg) 4%, transparent);
+    --surface-hover: color-mix(in srgb, var(--fg) 7%, transparent);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    color: var(--fg);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--dim) 30%, transparent);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--dim) 55%, transparent); }
+
+  main { padding: 12px 14px 18px; }
+  .dim { color: var(--dim); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* header */
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .model { font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  .live { width: 6px; height: 6px; border-radius: 50%; background: var(--empty); flex: none; }
+  .live.on { background: #81c995; }
+  .usage { margin: 2px 0 12px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .usage .big { font-size: 24px; font-weight: 600; letter-spacing: -.01em; }
+  .usage .of { color: var(--dim); }
+  .usage .pct { margin-left: auto; font-size: 13px; font-weight: 600; }
+  button {
+    font: inherit; font-size: 11.5px; color: var(--dim); cursor: pointer; white-space: nowrap;
+    background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 2.5px 8px;
+    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  }
+  button:hover { color: var(--fg); border-color: var(--dim); background: var(--surface); }
+
+  /* grid: each dot is 1% of the context window */
+  .grid { display: grid; grid-template-columns: repeat(20, 1fr); gap: 4px; max-width: 320px; margin-bottom: 4px; }
+  .dot { aspect-ratio: 1; border-radius: 50%; background: var(--empty); }
+
+  /* sections */
+  section { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; }
+  h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  h2 .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .note { font-size: 12px; color: var(--dim); margin: -2px 0 8px; }
+  .group + .group { margin-top: 8px; }
+  .row { display: grid; grid-template-columns: 10px 1fr auto 42px; align-items: center; gap: 8px; padding: 2.5px 0; }
+  .row .tok { text-align: right; }
+  .row .p { text-align: right; color: var(--dim); font-size: 12px; }
+  .mark { width: 8px; height: 8px; border-radius: 50%; }
+  .mark.sq { border-radius: 2px; }
+  .mark.free { background: transparent; border: 1.5px solid var(--empty); }
+
+  /* context growth curve */
+  .curve-card {
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
+    padding: 10px 10px 8px;
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .curve-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    color: var(--dim);
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .curve-title {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .curve-badge {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--c-agent) 12%, transparent);
+    color: var(--c-agent);
+    border: 1px solid color-mix(in srgb, var(--c-agent) 30%, transparent);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .curve-info {
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .curve-info strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .curve-chart-wrap {
+    position: relative;
+    width: 100%;
+    user-select: none;
+    touch-action: none;
+  }
+  .curve-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .curve-tooltip {
+    min-height: 24px;
+    font-size: 11px;
+    line-height: 1.35;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .curve-tooltip-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .curve-tooltip-preview {
+    color: var(--dim);
+    font-size: 10.5px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .curve-legend {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--dim);
+    padding: 6px 4px 2px;
+    border-top: 1px solid var(--line);
+    margin-top: 2px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .curve-legend-items {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .curve-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--fg);
+    opacity: 0.9;
+    white-space: nowrap;
+  }
+
+  /* interactive per-turn inspector (DeepSeek Harness style) */
+  .turn-list { display: flex; flex-direction: column; gap: 2px; }
+  details.turn-item {
+    border-radius: 7px;
+    border: 1px solid transparent;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  details.turn-item:hover {
+    background: var(--surface);
+  }
+  details.turn-item[open] {
+    background: var(--surface);
+    border-color: var(--line);
+    margin: 2px 0;
+  }
+  summary.turn-summary {
+    list-style: none;
+    display: grid;
+    grid-template-columns: 12px 36px 1fr 68px 46px 54px;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px;
+    font-size: 11.5px;
+    cursor: pointer;
+    user-select: none;
+  }
+  summary.turn-summary::-webkit-details-marker { display: none; }
+  .turn-chev {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dim);
+    opacity: 0.65;
+    transition: transform 0.14s ease;
+  }
+  details.turn-item[open] .turn-chev {
+    transform: rotate(90deg);
+    color: var(--fg);
+    opacity: 0.9;
+  }
+  .turn-main {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .turn-tag {
+    font-size: 10px;
+    line-height: 1.3;
+    padding: 0 5px;
+    border-radius: 4px;
+    color: var(--dim);
+    border: 1px solid var(--line);
+    flex: none;
+  }
+  .turn-tag.user {
+    color: var(--c-user);
+    border-color: color-mix(in srgb, var(--c-user) 35%, transparent);
+  }
+  .turn-tag.bust {
+    color: #f87171;
+    background: color-mix(in srgb, #ef4444 13%, transparent);
+    border-color: color-mix(in srgb, #ef4444 42%, transparent);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  /* dual-mode top switch bar & right-hand language / refresh controls */
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 11px;
+  }
+  .mode-tabs {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--fg) 4.5%, transparent);
+    border: 1px solid var(--line);
+  }
+  .nav-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+  }
+  .lang-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 31px;
+    padding: 0 7.5px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+    color: var(--dim);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+  }
+  .lang-pill:hover {
+    border-color: var(--dim);
+    background: var(--surface-hover);
+  }
+  .lang-pill .on {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .lang-pill .sep {
+    opacity: 0.42;
+    font-size: 10px;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 31px;
+    height: 31px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+    color: var(--dim);
+  }
+  .icon-btn:hover {
+    color: var(--fg);
+    border-color: var(--dim);
+    background: var(--surface-hover);
+  }
+  .mode-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 25px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--dim);
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+  .mode-tab:hover {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 4%, transparent);
+    border-color: transparent;
+  }
+  .mode-tab.active {
+    color: var(--fg);
+    font-weight: 600;
+    background: color-mix(in srgb, var(--fg) 9%, transparent);
+    border-color: var(--line);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+  .tab-count {
+    font-size: 10px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--c-agent) 16%, transparent);
+    color: var(--c-agent);
+    border: 1px solid color-mix(in srgb, var(--c-agent) 32%, transparent);
+  }
+  .tab-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    animation: pulse-dot 1.8s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.42; transform: scale(0.84); }
+  }
+
+  /* single-session live TTL & cache bust capsules */
+  .cache-strip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: -4px 0 10px;
+  }
+  .ttl-pill, .bust-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 7.5px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    white-space: nowrap;
+  }
+  .ttl-pill .ttl-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dim);
+    flex: none;
+  }
+  .ttl-pill.warm {
+    color: #10b981;
+    border-color: color-mix(in srgb, #10b981 36%, transparent);
+    background: color-mix(in srgb, #10b981 8%, transparent);
+  }
+  .ttl-pill.warm .ttl-dot { background: #10b981; }
+  .ttl-pill.risk {
+    color: #f59e0b;
+    border-color: color-mix(in srgb, #f59e0b 45%, transparent);
+    background: color-mix(in srgb, #f59e0b 10%, transparent);
+  }
+  .ttl-pill.risk .ttl-dot {
+    background: #f59e0b;
+    animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+  .ttl-pill.cold {
+    color: color-mix(in srgb, #f87171 80%, var(--dim));
+    border-color: color-mix(in srgb, #f87171 28%, var(--line));
+    background: color-mix(in srgb, #f87171 6%, transparent);
+  }
+  .ttl-pill.cold .ttl-dot { background: color-mix(in srgb, #f87171 75%, var(--dim)); }
+  .ttl-pill.killed {
+    color: var(--dim);
+    opacity: 0.72;
+  }
+  .bust-pill.has-bust {
+    color: #f59e0b;
+    border-color: color-mix(in srgb, #f59e0b 40%, transparent);
+    background: color-mix(in srgb, #f59e0b 8%, transparent);
+  }
+  .bust-pill.severe {
+    color: #f87171;
+    border-color: color-mix(in srgb, #ef4444 42%, transparent);
+    background: color-mix(in srgb, #ef4444 9%, transparent);
+  }
+
+  /* Swarm Radar view */
+  .swarm-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 9px;
+  }
+  .swarm-title-wrap { min-width: 0; }
+  .swarm-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+  .swarm-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .mini-pill {
+    font-size: 10px;
+    padding: 0 5.5px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  .mini-pill.info {
+    color: var(--c-agent);
+    border-color: color-mix(in srgb, var(--c-agent) 35%, transparent);
+    background: color-mix(in srgb, var(--c-agent) 8%, transparent);
+  }
+  .mini-pill.warn {
+    color: #f59e0b;
+    border-color: color-mix(in srgb, #f59e0b 40%, transparent);
+    background: color-mix(in srgb, #f59e0b 9%, transparent);
+  }
+  .mini-pill.bad {
+    color: #f87171;
+    border-color: color-mix(in srgb, #ef4444 42%, transparent);
+    background: color-mix(in srgb, #ef4444 10%, transparent);
+  }
+  .mini-pill.ok {
+    color: #10b981;
+    border-color: color-mix(in srgb, #10b981 36%, transparent);
+    background: color-mix(in srgb, #10b981 7%, transparent);
+  }
+
+  .swarm-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+    margin-bottom: 10px;
+  }
+  .kpi-card {
+    padding: 8px 9px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 2.5%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+  .kpi-card.alert {
+    border-color: color-mix(in srgb, #f59e0b 40%, var(--line));
+    background: color-mix(in srgb, #f59e0b 5%, transparent);
+  }
+  .kpi-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .kpi-val {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .kpi-foot {
+    font-size: 10.5px;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .ttl-legend-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 6px 8px;
+    margin-bottom: 10px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
+    font-size: 10.5px;
+    color: var(--dim);
+  }
+  .ttl-leg-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .ttl-leg-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .worker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .worker-card {
+    padding: 8px 9px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 2.2%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+  .worker-card.viewed {
+    border-color: color-mix(in srgb, var(--c-agent) 45%, var(--line));
+    background: color-mix(in srgb, var(--c-agent) 4%, transparent);
+  }
+  .worker-card.killed {
+    opacity: 0.66;
+  }
+  .wk-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .wk-id {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .wk-name {
+    font-weight: 600;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .st-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--dim);
+  }
+  .st-dot.working {
+    background: #10b981;
+    box-shadow: 0 0 0 2px color-mix(in srgb, #10b981 24%, transparent);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+  .st-dot.waiting {
+    background: #f59e0b;
+  }
+  .st-dot.idle {
+    background: #4c8df6;
+  }
+  .st-dot.killed {
+    background: var(--dim);
+    opacity: 0.5;
+  }
+  .wk-mid {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .wk-model {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .wk-model-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+  }
+  .ctx-bar-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctx-bar-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--empty);
+    overflow: hidden;
+  }
+  .ctx-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.2s ease;
+  }
+  .wk-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+    flex-wrap: wrap;
+  }
+
+  .turn-detail {
+    border-top: 1px solid var(--line);
+    padding: 9px 10px 10px;
+    font-size: 11.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .td-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--dim);
+    flex-wrap: wrap;
+  }
+  .td-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  @media (max-width: 340px) {
+    .td-cards { grid-template-columns: 1fr; }
+  }
+  .td-card {
+    padding: 7px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 3.5px;
+  }
+  .td-card-title {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--dim);
+    margin-bottom: 1px;
+  }
+  .td-bar {
+    height: 3px;
+    border-radius: 999px;
+    background: var(--empty);
+    overflow: hidden;
+    display: flex;
+    margin-bottom: 3px;
+  }
+  .td-kv {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .td-kv .k { color: var(--dim); }
+  .td-kv .v { font-variant-numeric: tabular-nums; font-weight: 500; }
+
+  .td-box {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
+  }
+  .td-box-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--dim);
+    margin-bottom: 4px;
+  }
+  .td-snippet {
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--fg);
+    opacity: 0.88;
+    word-break: break-word;
+  }
+  .td-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .td-tool-row {
+    display: grid;
+    grid-template-columns: 13px auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    padding: 2px 0;
+  }
+  .td-tool-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--dim);
+    opacity: 0.7;
+  }
+  .td-tool-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    color: var(--c-tool);
+    white-space: nowrap;
+  }
+  .td-tool-sum {
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .td-tool-tok {
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .files li { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 3px 0; }
+  .files .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files .dir { display: block; font-size: 11.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  .files .tok { color: var(--dim); font-size: 12px; align-self: start; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .ck-main { display: flex; justify-content: space-between; gap: 8px; }
+  .badge { font-size: 11px; color: #81c995; border: 1px solid color-mix(in srgb, #81c995 40%, transparent); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+
+  .empty { margin: 48px 8px; text-align: center; color: var(--dim); }
+  footer { margin-top: 16px; font-size: 11px; color: var(--dim); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<main id="main"><p class="empty">Loading…</p></main>
+
+<script>
+(() => {
+  const POLL_MS = 3000;
+  const SEGMENT_COLORS = ['var(--c-system)', 'var(--c-user)', 'var(--c-agent)', 'var(--c-tool)', 'var(--c-custom)'];
+  const CONVERSATION = { user: 'var(--c-user)', agent: 'var(--c-agent)', tool: 'var(--c-tool)', system_messages: 'var(--c-sysmsg)' };
+  const SYSTEM = new Set(['system_prompt', 'system_tools', 'system_overhead']);
+  const params = new URLSearchParams(location.search);
+  const initialConversationId = (window.sidecar && window.sidecar.conversationId) || params.get('conversationId') || '';
+  const initialViewParam = params.get('view') || '';
+  const doFetch = (window.sidecar && window.sidecar.fetch) || fetch;
+  const main = document.getElementById('main');
+  let workspace = '';
+  let report = null;
+  let lastReportPayload = null;
+  let swarmData = null;
+  let historicalSwarmMode = false;
+  let lastJson = '';
+  let selectedTurnStep = null;
+  let showAllTurns = false;
+  let configLang = 'auto';
+  let hostDetectedLang = '';
+  let userOverrodeLangUntil = 0;
+
+  const TAB_PREF_KEY = 'agy_ctx_pro_active_tab';
+  let activeMode = initialViewParam === 'swarm' ? 'swarm' : (initialViewParam === 'single' ? 'single' : '');
+  let userPinnedMode = Boolean(activeMode);
+  if (!activeMode) {
+    try {
+      const saved = localStorage.getItem(TAB_PREF_KEY);
+      if (saved === 'swarm' || saved === 'single') {
+        activeMode = saved;
+        userPinnedMode = true;
+      }
+    } catch {}
+  }
+  if (!activeMode) activeMode = 'single';
+
+  const SVG_CHEVRON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  const SVG_TOOL = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+  const SVG_SWARM = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="5" cy="19" r="2"/><path d="m14.2 9.8 3.3-3.3"/><path d="M9.8 9.8 6.5 6.5"/><path d="m14.2 14.2 3.3 3.3"/><path d="m9.8 14.2-3.3 3.3"/></svg>';
+  const SVG_SINGLE = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>';
+  const SVG_REFRESH = '<svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>';
+
+  const I18N = {
+    zh: {
+      doc_title: '上下文与蜂群监控',
+      loading: '加载中…',
+      tab_single: '单会话详情',
+      tab_swarm: '蜂群雷达',
+      tab_working_tip: '有工兵正在执行',
+      btn_lang_tip: '切换语言并保存至 ~/.gemini/context-pro-config.json',
+      btn_refresh_tip: '立即刷新',
+      err_no_conv: '请先打开一个会话以查看上下文监控。',
+      err_no_db: '当前会话暂无已保存数据，发送首条消息后自动生成。',
+      err_read_fail: '无法读取当前会话：{msg}',
+      live_tip: '实时监控中',
+      copy_report: '复制报告',
+      copy_tip: '复制纯文本报告',
+      copied: '已复制',
+      unknown: '未知',
+      phys_note: '(物理 {lim})',
+      phys_tip: '底层模型理论物理窗口上限',
+      ttl_awaiting: '等待生成',
+      ttl_awaiting_tip: '尚无模型响应时间戳',
+      ttl_warm_single: '保活中 {t}',
+      ttl_warm_worker: '保活 {t}',
+      ttl_warm_tip: '黄金保活期 (<3m)：距 3m 阈值剩 {rem}',
+      ttl_risk: '濒危 {t}',
+      ttl_risk_tip: '3-5m LRU 驱逐高危期：已空闲 {t}',
+      ttl_cold_single: '缓存已冷 {t}',
+      ttl_cold_worker: '已冷 {t}',
+      ttl_cold_tip: '已超 5 分钟硬 TTL ({t})：下次唤醒必全价重灌',
+      bust_has: '缓存崩塌：{n} 次 · 白烧 {tok}',
+      bust_zero: '缓存崩塌：0 次',
+      bust_tip: '前轮上下文 >=30k 且未压缩时发生缓存归零全价重灌的次数与累计白烧输入 Token',
+      quota_soon: '即将重置',
+      quota_dh: '{d}d{h}h重置',
+      quota_hm: '{h}h{m}m重置',
+      quota_m: '{m}m重置',
+      quota_pill: '额度 {pct}%{eta}',
+      quota_tip: '当前模型配额池剩余比例与重置倒计时',
+      cluster_jump_sub: '关联子代理 {act}/{tot} →',
+      cluster_jump_swarm: '关联蜂群 {act}/{tot} →',
+      grid_tip: '每个圆点代表有效上下文预算 ({lim}) 的 1%',
+      cat_user: '用户提问消息',
+      cat_agent: '智能体回复与思考',
+      cat_tool: '工具调用与返回',
+      cat_system_prompt: '系统提示词',
+      cat_system_tools: '内置工具定义',
+      cat_system_overhead: '系统框架开销',
+      cat_rules: '规则文件 (Rules)',
+      cat_skills: '技能定义 (Skills)',
+      cat_subagents: '子代理配置',
+      cat_legacy_workflows: '旧版工作流',
+      cat_workflows: '工作流定义',
+      cat_plugins: '插件配置',
+      cat_mcp_tools: 'MCP 工具定义',
+      cat_system_messages: '系统通知消息',
+      sec_categories: '上下文构成明细',
+      free_until_compact: '距压缩剩余空间',
+      heading_compacted: '压缩后估算值 · 下一轮对话自动刷新',
+      heading_by_cat: '按类别统计 Token 占用',
+      heading_awaiting: '预估占用（等待首次生成）',
+      ck_buffer: '检查点缓冲区：{tok} tokens（不计入活跃占用）',
+      sec_checkpoints: '会话检查点',
+      ck_hint: '{n} 个 · /rewind',
+      ck_item: '检查点 {num}：{txt}',
+      ck_badge: '当前活跃',
+      ck_older: '另有 {n} 个早期检查点已压缩归档，不在当前上下文中',
+      conv_folder: '当前会话目录',
+      sec_curve: '上下文增长曲线',
+      curve_turns: '共 {n} 轮',
+      curve_start: '起始：',
+      curve_latest: '当前：',
+      curve_aria: '上下文随轮次增长曲线',
+      curve_axis_y: '上下文 (Token)',
+      curve_axis_x: '轮次 →',
+      curve_budget_line: '压缩线 {tok}',
+      curve_budget_leg: '自动压缩线 ({tok})',
+      curve_budget_out: '自动压缩线 {tok}',
+      curve_peak_net: '峰值：<strong>{peak}</strong> · 净增：<strong>{net}</strong>',
+      leg_ctx: '上下文量',
+      leg_user: '用户提问',
+      leg_bust: '缓存崩塌',
+      leg_drop: '自动压缩',
+      tip_hit: '· 命中 {pct}%',
+      tag_bust_long: '缓存崩塌',
+      tag_bust_short: '崩塌',
+      tag_user: '提问',
+      tag_tools: '{n}工具',
+      sec_perf: '性能与吞吐遥测',
+      perf_hint: '最新第 #{step} 轮 · 共 {total} 轮调用',
+      perf_speed: '输出速度（本轮 / 峰值）',
+      perf_ttft: '首字延迟 TTFT（本轮 / 均值）',
+      perf_prefill: '预填充吞吐（本轮 / 均值）',
+      perf_cache: '缓存命中率（本轮 / 累计）',
+      perf_turn_out: '本轮输出（总计 / 思考链）',
+      perf_sess_out: '累计输出（总计 / 思考链）',
+      sec_turns: '逐轮调用审查',
+      turns_collapse: '收起至近 12 轮',
+      turns_expand: '展开全部 {n} 轮',
+      turn_title: '第 #{step} 轮',
+      td_meta_turn: '第 #{step} 轮',
+      td_meta_traj: ' · 轨迹步 #{traj}',
+      td_meta_delta: '增量 {d}',
+      td_bust_banner: '缓存崩塌重建：全价重灌 {tok} 未命中输入',
+      td_ctx_title: '上下文与预填充',
+      td_prompt_total: '输入总计',
+      td_cache_read: '缓存命中',
+      td_fresh_input: '全价新灌',
+      td_prefill_speed: '预填充速度',
+      td_out_title: '输出与耗时',
+      td_out_total: '输出总计',
+      td_think_resp: '思考 / 正文',
+      td_ttft_stream: '首字 / 流式',
+      td_total_speed: '总计 / 速度',
+      td_user_input: '用户输入',
+      td_tool_calls: '工具调用账单 ({n})',
+      td_thinking: '思考链摘要',
+      td_response: '回复正文摘要',
+      files_knowledge: '规则与知识文件',
+      files_artifact: '会话产物文件',
+      files_skill: '已激活技能文件',
+      files_system: '系统自动加载文件',
+      files_autoload: '自动加载',
+      footer_single: '快捷指令：/compact · /skill · /rewind',
+      footer_swarm: '蜂群与子代理全景雷达',
+      footer_updated: '更新于 {t}',
+      swarm_empty_title: '当前会话暂无关联蜂群或子代理',
+      swarm_empty_desc: '当会话启动原生 Swarm 蜂群或调用 invoke_subagent 派生子代理时，此处将自动呈现全景缓存与集群雷达。',
+      swarm_load_latest: '查看最近一次本机蜂群历史',
+      swarm_exit_history: '返回当前',
+      swarm_kind_sub: 'SUBAGENTS 子代理组',
+      swarm_kind_swarm: 'SWARM 原生蜂群',
+      swarm_worker_view: '工兵反查主控',
+      swarm_worker_view_tip: '已自动从当前工兵会话反查定位至主控蜂群',
+      swarm_hist_badge: '历史最近记录',
+      swarm_scan_ms: '探针 {ms}ms',
+      swarm_pre_overhead: '建群前 {steps}步 · {dur}{slow}',
+      swarm_pre_slow: ' 慢启动',
+      swarm_pre_tip: '主控第 0 步至首次派单/建群的串行准备开销',
+      swarm_direct_dispatch: '直接派单',
+      swarm_audit_violation: '违禁模型 {n}',
+      swarm_audit_warn: '越级模型 {n}',
+      swarm_audit_ok: '模型全合规',
+      kpi_turns: '全群总轮次',
+      kpi_turns_unit: '轮',
+      kpi_hit: '全群综合命中率',
+      kpi_hit_foot: '读缓存 {cr} · 新灌 {inp}',
+      kpi_bust: '缓存崩塌总账',
+      kpi_bust_val: '{n} 次崩塌',
+      kpi_bust_foot: '白烧 <strong>{tok}</strong> 全价输入',
+      kpi_members: '活跃 / 总成员数',
+      kpi_members_foot: '{w} 运行 · {wt} 待命 · {k} 回收',
+      ttl_bar_tip: '缓存保活窗口图例：每秒本地零开销实时倒计时',
+      ttl_leg_warm: '<3m 保活绿',
+      ttl_leg_risk: '3-5m 濒危黄 (易驱逐)',
+      ttl_leg_cold: '>5m 已冷重灌',
+      sec_workers_audit: '工兵矩阵与模型稽核明细',
+      sec_workers_plain: '集群成员与缓存明细',
+      workers_hint: '{n} 成员 · 总输出 {out}',
+      role_coord: '主控',
+      role_mon: '监控',
+      role_sub_with: '子代理·{r}',
+      role_sub: '子代理',
+      role_wk_share: '工兵·share',
+      role_wk_branch: '工兵·branch',
+      role_wk: '工兵',
+      st_working: '运行中',
+      st_waiting: '待命中',
+      st_killed: '已回收',
+      st_idle: '空闲',
+      wk_viewed: '当前',
+      wk_high_ctx: '高水位',
+      wk_high_ctx_tip: '上下文占用已超预算 78%，一旦缓存变冷唤醒将产生巨额重灌开销',
+      wk_model_tip: '模型：{m} | 底座：{b}',
+      wk_ctx_tip: '当前上下文水位 {ctx} / 预算 {bud} tokens',
+      wk_foot_stats: '<strong>{t}</strong> 轮 · 命中 <strong>{hit}%</strong> · 输出 {out}',
+      wk_bust_has: '崩塌 {n}次 (白烧 {tok})',
+      wk_bust_zero: '崩塌 0次'
+    },
+    en: {
+      doc_title: 'Context Usage',
+      loading: 'Loading…',
+      tab_single: 'Session',
+      tab_swarm: 'Swarm Radar',
+      tab_working_tip: 'Workers actively running',
+      btn_lang_tip: 'Switch language and save to ~/.gemini/context-pro-config.json',
+      btn_refresh_tip: 'Refresh now',
+      err_no_conv: 'Open a conversation to see its context usage.',
+      err_no_db: 'This conversation has no saved data yet. Send a message first.',
+      err_read_fail: "Couldn't read this conversation: {msg}",
+      live_tip: 'Live',
+      copy_report: 'Copy as text',
+      copy_tip: 'Copy report',
+      copied: 'Copied',
+      unknown: 'Unknown',
+      phys_note: '(native {lim})',
+      phys_tip: 'Underlying model native context window',
+      ttl_awaiting: 'Awaiting turn',
+      ttl_awaiting_tip: 'No model response timestamp yet',
+      ttl_warm_single: 'Warm {t}',
+      ttl_warm_worker: 'Warm {t}',
+      ttl_warm_tip: 'Warm cache (<3m): {rem} left before 3m threshold',
+      ttl_risk: 'Risk {t}',
+      ttl_risk_tip: '3-5m LRU eviction risk window: idle {t}',
+      ttl_cold_single: 'Cold {t}',
+      ttl_cold_worker: 'Cold {t}',
+      ttl_cold_tip: 'Past 5m hard TTL ({t}): next turn requires full re-prefill',
+      bust_has: 'Cache bust: {n}x · {tok} wasted',
+      bust_zero: 'Cache bust: 0',
+      bust_tip: 'Full-price prompt re-prefills when prior context >=30k without compaction',
+      quota_soon: 'resetting',
+      quota_dh: 'in {d}d{h}h',
+      quota_hm: 'in {h}h{m}m',
+      quota_m: 'in {m}m',
+      quota_pill: 'Quota {pct}%{eta}',
+      quota_tip: 'Remaining model quota pool and reset countdown',
+      cluster_jump_sub: 'Subagents {act}/{tot} →',
+      cluster_jump_swarm: 'Swarm {act}/{tot} →',
+      grid_tip: 'Each dot is 1% of the effective context budget ({lim})',
+      cat_user: 'User messages',
+      cat_agent: 'Agent responses',
+      cat_tool: 'Tool calls',
+      cat_system_prompt: 'System prompt',
+      cat_system_tools: 'System tools',
+      cat_system_overhead: 'System overhead',
+      cat_rules: 'Rules',
+      cat_skills: 'Skills',
+      cat_subagents: 'Subagents',
+      cat_legacy_workflows: 'Legacy workflows',
+      cat_workflows: 'Workflows',
+      cat_plugins: 'Plugins',
+      cat_mcp_tools: 'MCP tools',
+      cat_system_messages: 'System messages',
+      sec_categories: 'Token usage',
+      free_until_compact: 'Free space',
+      heading_compacted: 'Estimated after compaction · updates next turn',
+      heading_by_cat: 'Token usage by category',
+      heading_awaiting: 'Estimated usage (awaiting generation)',
+      ck_buffer: 'Checkpoint buffer: {tok} tokens (not counted in usage)',
+      sec_checkpoints: 'Checkpoints',
+      ck_hint: '{n} · /rewind',
+      ck_item: 'Checkpoint {num}: {txt}',
+      ck_badge: 'in context',
+      ck_older: '{n} older checkpoint(s) summarized, not in context',
+      conv_folder: 'conversation folder',
+      sec_curve: 'Context Growth Curve',
+      curve_turns: '{n} turns',
+      curve_start: 'Start: ',
+      curve_latest: 'Latest: ',
+      curve_aria: 'Context growth curve showing tokens per turn',
+      curve_axis_y: 'context (tokens)',
+      curve_axis_x: 'turn →',
+      curve_budget_line: 'Budget {tok}',
+      curve_budget_leg: 'Budget ({tok})',
+      curve_budget_out: 'Budget {tok}',
+      curve_peak_net: 'Peak: <strong>{peak}</strong> · Net: <strong>{net}</strong>',
+      leg_ctx: 'Context tokens',
+      leg_user: 'User prompt',
+      leg_bust: 'Cache bust',
+      leg_drop: 'Compaction drop',
+      tip_hit: '· cache {pct}%',
+      tag_bust_long: 'CACHE BUST',
+      tag_bust_short: 'BUST',
+      tag_user: 'user',
+      tag_tools: '{n}t',
+      sec_perf: 'Performance',
+      perf_hint: 'Step #{step} · {total} turns',
+      perf_speed: 'Output speed (latest / peak)',
+      perf_ttft: 'First token TTFT (latest / avg)',
+      perf_prefill: 'Prefill throughput (latest / avg)',
+      perf_cache: 'Cache hit (latest / session)',
+      perf_turn_out: 'Turn output (total / think)',
+      perf_sess_out: 'Session output (total / think)',
+      sec_turns: 'Recent turns',
+      turns_collapse: 'Recent 12',
+      turns_expand: 'All {n}',
+      turn_title: 'Turn #{step}',
+      td_meta_turn: 'Turn #{step}',
+      td_meta_traj: ' · Step #{traj}',
+      td_meta_delta: 'Delta {d}',
+      td_bust_banner: 'CACHE BUST: Full-price re-prefill of {tok} uncached input tokens',
+      td_ctx_title: 'Context & Prefill',
+      td_prompt_total: 'Prompt total',
+      td_cache_read: 'Cache read',
+      td_fresh_input: 'Fresh input',
+      td_prefill_speed: 'Prefill speed',
+      td_out_title: 'Output & Latency',
+      td_out_total: 'Output total',
+      td_think_resp: 'Think / Resp',
+      td_ttft_stream: 'TTFT / Stream',
+      td_total_speed: 'Total / Speed',
+      td_user_input: 'User input',
+      td_tool_calls: 'Tool calls ({n})',
+      td_thinking: 'Thinking snippet',
+      td_response: 'Response snippet',
+      files_knowledge: 'Knowledge files',
+      files_artifact: 'Artifact files',
+      files_skill: 'Skill files',
+      files_system: 'System files',
+      files_autoload: 'auto-loaded',
+      footer_single: 'Related: /compact · /skill · /rewind',
+      footer_swarm: 'Swarm & Subagent Cache Radar',
+      footer_updated: 'Updated {t}',
+      swarm_empty_title: 'No active swarm or subagents in this session',
+      swarm_empty_desc: 'Panoramic cache, TTL, and member telemetry will appear automatically when a Swarm or subagent is launched.',
+      swarm_load_latest: 'View most recent local cluster',
+      swarm_exit_history: 'Back to live',
+      swarm_kind_sub: 'SUBAGENTS',
+      swarm_kind_swarm: 'SWARM',
+      swarm_worker_view: 'Worker → Root',
+      swarm_worker_view_tip: 'Resolved parent cluster from current worker conversation',
+      swarm_hist_badge: 'Historical',
+      swarm_scan_ms: 'Scan {ms}ms',
+      swarm_pre_overhead: 'Pre-dispatch {steps}st · {dur}{slow}',
+      swarm_pre_slow: ' slow',
+      swarm_pre_tip: 'Coordinator serial steps and duration before first dispatch',
+      swarm_direct_dispatch: 'Direct dispatch',
+      swarm_audit_violation: 'Forbidden {n}',
+      swarm_audit_warn: 'Over-tier {n}',
+      swarm_audit_ok: 'Models compliant',
+      kpi_turns: 'Cluster turns',
+      kpi_turns_unit: 'turns',
+      kpi_hit: 'Cluster cache hit',
+      kpi_hit_foot: 'Read {cr} · Fresh {inp}',
+      kpi_bust: 'Cache busts',
+      kpi_bust_val: '{n} busts',
+      kpi_bust_foot: '<strong>{tok}</strong> uncached re-prefill',
+      kpi_members: 'Active / Members',
+      kpi_members_foot: '{w} working · {wt} waiting · {k} killed',
+      ttl_bar_tip: 'Prompt cache TTL legend: live zero-cost local timer',
+      ttl_leg_warm: '<3m Warm',
+      ttl_leg_risk: '3-5m Eviction risk',
+      ttl_leg_cold: '>5m Cold (re-prefill)',
+      sec_workers_audit: 'Members & Model Audit',
+      sec_workers_plain: 'Cluster Members',
+      workers_hint: '{n} members · {out} out',
+      role_coord: 'Coordinator',
+      role_mon: 'Monitor',
+      role_sub_with: 'Sub·{r}',
+      role_sub: 'Subagent',
+      role_wk_share: 'Worker·share',
+      role_wk_branch: 'Worker·branch',
+      role_wk: 'Worker',
+      st_working: 'Working',
+      st_waiting: 'Waiting',
+      st_killed: 'Killed',
+      st_idle: 'Idle',
+      wk_viewed: 'Current',
+      wk_high_ctx: 'High ctx',
+      wk_high_ctx_tip: 'Context exceeds 78% of budget; waking after cache cools will incur heavy re-prefill',
+      wk_model_tip: 'Model: {m} | Base: {b}',
+      wk_ctx_tip: 'Context watermark {ctx} / budget {bud} tokens',
+      wk_foot_stats: '<strong>{t}</strong>t · hit <strong>{hit}%</strong> · out {out}',
+      wk_bust_has: 'Bust {n}x ({tok})',
+      wk_bust_zero: 'Bust 0'
+    }
+  };
+
+  function normalizeLangSetting(raw) {
+    const v = String(raw || '').trim().toLowerCase();
+    if (v.startsWith('zh')) return 'zh';
+    if (v.startsWith('en')) return 'en';
+    return 'auto';
+  }
+
+  function detectParentOrNavigatorLang() {
+    try {
+      if (window.parent && window.parent !== window && window.parent.document) {
+        const exo = window.parent.document.documentElement?.dataset?.agExoLang;
+        if (exo === 'zh' || exo === 'en') return exo;
+      }
+    } catch {}
+    if (hostDetectedLang === 'zh' || hostDetectedLang === 'en') {
+      return hostDetectedLang;
+    }
+    const nav = (typeof navigator !== 'undefined' && navigator.language) || '';
+    return /^zh\b/i.test(String(nav).trim()) ? 'zh' : 'en';
+  }
+
+  function resolveUiLang() {
+    if (configLang === 'zh' || configLang === 'en') return configLang;
+    return detectParentOrNavigatorLang();
+  }
+
+  function t(key, vars) {
+    const lang = resolveUiLang();
+    const dict = I18N[lang] || I18N.en;
+    let str = dict[key] !== undefined ? dict[key] : (I18N.en[key] || key);
+    if (vars && typeof vars === 'object') {
+      for (const [k, v] of Object.entries(vars)) {
+        str = str.split(`{${k}}`).join(String(v ?? ''));
+      }
+    }
+    return str;
+  }
+
+  function syncDocumentLangMeta() {
+    const lang = resolveUiLang();
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    document.title = t('doc_title');
+  }
+
+  async function toggleUiLanguage() {
+    const nextLang = resolveUiLang() === 'zh' ? 'en' : 'zh';
+    configLang = nextLang;
+    userOverrodeLangUntil = Date.now() + 5000;
+    syncDocumentLangMeta();
+    lastJson = '';
+    if (lastReportPayload !== null || swarmData !== null) {
+      render(lastReportPayload, swarmData);
+    }
+    try {
+      window.parent?.postMessage({ type: 'agy-context-lang-changed', lang: nextLang }, '*');
+    } catch {}
+    try {
+      const body = JSON.stringify({ lang: nextLang });
+      const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body };
+      await doFetch(`/api/config?lang=${encodeURIComponent(nextLang)}`, opts).catch(() =>
+        doFetch(`/config?lang=${encodeURIComponent(nextLang)}`, opts)
+      );
+    } catch {}
+    lastJson = '';
+    refresh(true);
+  }
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function fmtTok(n) {
+    const val = Number(n) || 0;
+    if (val >= 1e6) { const v = val / 1e6; return Number.isInteger(v) ? `${v}M` : `${v.toFixed(1)}M`; }
+    if (val >= 1e3) return `${(val / 1e3).toFixed(1)}k`;
+    return String(val);
+  }
+
+  function fmtClock(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    if (s >= 3600) {
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return `${h}h${String(m).padStart(2, '0')}m`;
+    }
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+  }
+
+  function fmtOverheadDur(sec) {
+    if (sec === null || sec === undefined || Number.isNaN(Number(sec))) return '--';
+    const s = Math.max(0, Math.round(Number(sec)));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return `${h}h${String(m).padStart(2, '0')}m`;
+  }
+
+  function evalTtlState(isoStr, mode) {
+    if (!isoStr) return { cls: '', label: t('ttl_awaiting'), title: t('ttl_awaiting_tip') };
+    const ts = Date.parse(isoStr);
+    if (!Number.isFinite(ts)) return { cls: '', label: '--:--', title: '' };
+    const idleSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    const clk = fmtClock(idleSec);
+    if (idleSec < 180) {
+      const rem = 180 - idleSec;
+      return {
+        cls: 'warm',
+        label: mode === 'worker' ? t('ttl_warm_worker', { t: clk }) : t('ttl_warm_single', { t: clk }),
+        title: t('ttl_warm_tip', { rem: fmtClock(rem) })
+      };
+    }
+    if (idleSec < 300) {
+      return {
+        cls: 'risk',
+        label: t('ttl_risk', { t: clk }),
+        title: t('ttl_risk_tip', { t: clk })
+      };
+    }
+    return {
+      cls: 'cold',
+      label: mode === 'worker' ? t('ttl_cold_worker', { t: clk }) : t('ttl_cold_single', { t: clk }),
+      title: t('ttl_cold_tip', { t: clk })
+    };
+  }
+
+  function tickAllTtlCapsules() {
+    document.querySelectorAll('[data-ttl-ts]').forEach((el) => {
+      const ts = el.getAttribute('data-ttl-ts') || '';
+      const mode = el.getAttribute('data-ttl-mode') || 'single';
+      const st = evalTtlState(ts, mode);
+      el.classList.remove('warm', 'risk', 'cold');
+      if (st.cls) el.classList.add(st.cls);
+      if (st.title) el.title = st.title;
+      const txtEl = el.querySelector('.ttl-txt');
+      if (txtEl) txtEl.textContent = st.label;
+    });
+  }
+
+  function setMode(nextMode, manual = true) {
+    if (nextMode !== 'single' && nextMode !== 'swarm') return;
+    activeMode = nextMode;
+    if (manual) {
+      userPinnedMode = true;
+      try { localStorage.setItem(TAB_PREF_KEY, nextMode); } catch {}
+    }
+    lastJson = '';
+    refresh(true);
+  }
+
+  window.addEventListener('message', (ev) => {
+    const d = ev && ev.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.hostLang === 'zh' || d.hostLang === 'en') {
+      const prevUi = resolveUiLang();
+      hostDetectedLang = d.hostLang;
+      if (d.configLang && Date.now() >= userOverrodeLangUntil) {
+        configLang = normalizeLangSetting(d.configLang);
+      }
+      if (resolveUiLang() !== prevUi && (lastReportPayload !== null || swarmData !== null)) {
+        syncDocumentLangMeta();
+        lastJson = '';
+        render(lastReportPayload, swarmData);
+      }
+    }
+    if (d.type === 'agy-context-switch-tab' && (d.tab === 'swarm' || d.tab === 'single')) {
+      setMode(d.tab, true);
+    }
+  });
+
+  function gridCells(segments, limit, total) {
+    let counts = segments.map((tok) => (!tok || !limit ? 0 : Math.max(1, Math.floor(tok / limit * total))));
+    const used = counts.reduce((a, b) => a + b, 0);
+    if (used > total) counts = counts.map((c) => Math.floor(c * total / used));
+    return [...counts, total - counts.reduce((a, b) => a + b, 0)];
+  }
+
+  const HEADING_KEY_MAP = {
+    'Estimated after compaction · updates next turn': 'heading_compacted',
+    'Token usage by category': 'heading_by_cat',
+    'Estimated usage (awaiting generation)': 'heading_awaiting'
+  };
+
+  function effectiveLimit(r) {
+    const b = Number(r && r.request_budget_tokens) || 0;
+    const n = Number(r && r.limit_tokens) || 0;
+    return b > 0 ? b : n;
+  }
+
+  function grid(r) {
+    const effLim = effectiveLimit(r);
+    const counts = gridCells(r.grid_segments, effLim, 100);
+    let dots = '';
+    counts.forEach((n, i) => {
+      dots += (i === 5 ? '<span class="dot"></span>' : `<span class="dot" style="background:${SEGMENT_COLORS[i]}"></span>`).repeat(n);
+    });
+    return `<div class="grid" title="${esc(t('grid_tip', { lim: fmtTok(effLim) }))}">${dots}</div>`;
+  }
+
+  function categoryRow(c, effLim) {
+    const color = CONVERSATION[c.key] || (SYSTEM.has(c.key) ? 'var(--c-system)' : 'var(--c-custom)');
+    const shape = CONVERSATION[c.key] ? '' : ' sq';
+    const catKey = `cat_${c.key}`;
+    const label = I18N.en[catKey] ? t(catKey) : c.name;
+    const pVal = effLim > 0 ? Math.min(100, (Number(c.tokens) || 0) / effLim * 100) : (c.pct || 0);
+    return `<div class="row"><span class="mark${shape}" style="background:${color}"></span><span>${esc(label)}</span>`
+      + `<span class="tok num">${fmtTok(c.tokens)}</span><span class="p num">${pVal.toFixed(1)}%</span></div>`;
+  }
+
+  function categories(r) {
+    const conv = r.categories.filter((c) => CONVERSATION[c.key]);
+    const rest = r.categories.filter((c) => !CONVERSATION[c.key]);
+    const effLim = effectiveLimit(r);
+    const used = Number(r.used_tokens) || 0;
+    const effFree = effLim > used ? effLim - used : 0;
+    const freePct = effLim ? (effFree / effLim * 100).toFixed(1) : '0.0';
+    const free = `<div class="row"><span class="mark free"></span><span class="dim">${esc(t('free_until_compact'))}</span>`
+      + `<span class="tok num">${fmtTok(effFree)}</span><span class="p num">${freePct}%</span></div>`;
+    const hKey = HEADING_KEY_MAP[r.heading];
+    const noteText = hKey ? t(hKey) : r.heading;
+    const note = r.heading === 'Token usage by category' ? '' : `<p class="note">${esc(noteText)}</p>`;
+    const buffer = r.checkpoint_buffer
+      ? `<p class="note">${esc(t('ck_buffer', { tok: fmtTok(r.checkpoint_buffer) }))}</p>` : '';
+    return `<section><h2>${esc(t('sec_categories'))}</h2>${note}
+      <div class="group">${conv.map((c) => categoryRow(c, effLim)).join('')}</div>
+      ${rest.length ? `<div class="group">${rest.map((c) => categoryRow(c, effLim)).join('')}</div>` : ''}
+      <div class="group">${free}</div>${buffer}</section>`;
+  }
+
+  function checkpoints(r) {
+    const ck = r.checkpoint_view;
+    if (!ck) return '';
+    const older = ck.historical ? `<div class="dim" style="font-size:12px">${esc(t('ck_older', { n: ck.historical }))}</div>` : '';
+    return `<section><h2>${esc(t('sec_checkpoints'))} <span class="hint">${esc(t('ck_hint', { n: ck.count }))}</span></h2>
+      <div class="ck-main"><span>${esc(t('ck_item', { num: ck.active_number, txt: ck.active_text }))}</span><span class="badge">${esc(t('ck_badge'))}</span></div>${older}</section>`;
+  }
+
+  function splitPath(path, activeConvId) {
+    const trimmed = path.replace(/\/$/, '');
+    const i = trimmed.lastIndexOf('/');
+    const name = trimmed.slice(i + 1) + (path.endsWith('/') ? '/' : '');
+    let dir = i > 0 ? trimmed.slice(0, i) : '';
+    const cid = activeConvId || initialConversationId;
+    if (cid) dir = dir.replace(new RegExp(`^.*/brain/${cid}`), t('conv_folder'));
+    return { name, dir };
+  }
+
+  function files(title, hint, items, activeConvId) {
+    if (!items || !items.length) return '';
+    const rows = items.map((f) => {
+      const { name, dir } = splitPath(f.path, activeConvId);
+      return `<li title="${esc(f.path)}"><span class="name">${esc(name)}<span class="dir">‎${esc(dir)}</span></span>`
+        + `<span class="tok num">${f.tokens > 0 ? fmtTok(f.tokens) : ''}</span></li>`;
+    }).join('');
+    return `<section><h2>${esc(title)} <span class="hint">${esc(hint)}</span></h2><ul class="files">${rows}</ul></section>`;
+  }
+
+  function fmtSec(ms) {
+    if (!ms || ms <= 0) return '0.00s';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  }
+
+  function makeSmoothPath(pts) {
+    if (!pts || !pts.length) return '';
+    if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    if (pts.length === 2) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} L ${pts[1].x.toFixed(1)} ${pts[1].y.toFixed(1)}`;
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i === 0 ? i : i - 1];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2 < pts.length ? i + 2 : i + 1];
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+
+  function calculateYScale(maxVal) {
+    const target = Math.max(100, maxVal * 1.08);
+    const roughStep = target / 3;
+    const pow = Math.pow(10, Math.max(0, Math.floor(Math.log10(roughStep))));
+    const frac = roughStep / pow;
+    let step;
+    if (frac <= 1.5) step = 1 * pow;
+    else if (frac <= 3.5) step = 2 * pow;
+    else if (frac <= 7.5) step = 5 * pow;
+    else step = 10 * pow;
+    const yMax = Math.ceil(target / step) * step;
+    const ticks = [];
+    for (let v = 0; v <= yMax; v += step) {
+      ticks.push(v);
+    }
+    return { yMax, ticks };
+  }
+
+  function growthCurveSection(r) {
+    const tel = r.telemetry;
+    if (!tel || !Array.isArray(tel.turns_curve) || !tel.turns_curve.length) return '';
+    const curve = tel.turns_curve;
+    const N = curve.length;
+    const pStart = curve[0];
+    const pLatest = curve[N - 1];
+    const growth = (pLatest.prompt_tokens || 0) - (pStart.prompt_tokens || 0);
+    const netStr = `${growth >= 0 ? '+' : ''}${fmtTok(growth)}`;
+
+    const maxTok = Math.max(...curve.map((c) => c.prompt_tokens || 0), 100);
+    const { yMax, ticks } = calculateYScale(maxTok);
+
+    const svgW = 340;
+    const svgH = 150;
+    const padL = 46;
+    const padR = 14;
+    const padT = 18;
+    const padB = 26;
+    const plotW = svgW - padL - padR;
+    const plotH = svgH - padT - padB;
+    const plotBottom = padT + plotH;
+    const plotRight = padL + plotW;
+
+    const pts = curve.map((turn, i) => {
+      const x = N > 1 ? padL + (i / (N - 1)) * plotW : padL + plotW / 2;
+      const y = plotBottom - Math.min(plotH, Math.max(0, ((turn.prompt_tokens || 0) / yMax) * plotH));
+      return { x, y, turn, i };
+    });
+
+    const gridLinesHtml = ticks.map((v) => {
+      const y = plotBottom - (v / yMax) * plotH;
+      return `
+        <line x1="${padL}" y1="${y.toFixed(1)}" x2="${plotRight}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-dasharray="3,3" opacity="0.6"/>
+        <text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--dim)" font-size="9" class="num">${fmtTok(v)}</text>
+      `;
+    }).join('');
+
+    const axisBottomHtml = `<line x1="${padL}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" stroke="var(--line)"/>`;
+
+    let xTickIndices = [];
+    if (N <= 6) {
+      xTickIndices = curve.map((_, idx) => idx);
+    } else {
+      xTickIndices = [0, Math.floor(N * 0.25), Math.floor(N * 0.5), Math.floor(N * 0.75), N - 1];
+      xTickIndices = [...new Set(xTickIndices)];
+    }
+    const xTicksHtml = xTickIndices.map((idx) => {
+      const pt = pts[idx];
+      return `
+        <line x1="${pt.x.toFixed(1)}" y1="${plotBottom}" x2="${pt.x.toFixed(1)}" y2="${plotBottom + 3}" stroke="var(--line)"/>
+        <text x="${pt.x.toFixed(1)}" y="${plotBottom + 13}" text-anchor="middle" fill="var(--dim)" font-size="9" class="num">#${pt.turn.step}</text>
+      `;
+    }).join('');
+
+    let pathHtml = '';
+    if (N === 1) {
+      pathHtml = `
+        <line x1="${padL}" y1="${pts[0].y.toFixed(1)}" x2="${plotRight}" y2="${pts[0].y.toFixed(1)}" stroke="var(--c-agent)" stroke-width="1.8" stroke-dasharray="4,4"/>
+        <circle cx="${pts[0].x.toFixed(1)}" cy="${pts[0].y.toFixed(1)}" r="4" fill="var(--c-agent)" stroke="var(--surface)" stroke-width="1.5"/>
+      `;
+    } else {
+      const lineD = makeSmoothPath(pts);
+      const areaD = `${lineD} L ${pts[N - 1].x.toFixed(1)} ${plotBottom} L ${pts[0].x.toFixed(1)} ${plotBottom} Z`;
+      pathHtml = `
+        <path d="${areaD}" fill="url(#growth-area-grad)"/>
+        <path d="${lineD}" fill="none" stroke="var(--c-agent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      `;
+    }
+
+    const dotsHtml = pts.map((pt) => {
+      const isBust = Boolean(pt.turn.cache_bust);
+      const isUser = Boolean(pt.turn.user_prompt);
+      const isDrop = pt.turn.context_delta < 0;
+      if (N > 32 && !isBust && !isUser && !isDrop && pt.i !== 0 && pt.i !== N - 1) {
+        return '';
+      }
+      const rad = isBust ? 3.8 : (isUser ? 3.5 : (isDrop ? 3.2 : 2.2));
+      const color = isBust ? '#ef4444' : (isDrop ? '#81c995' : (isUser ? 'var(--c-user)' : 'var(--c-agent)'));
+      return `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="${rad}" fill="${color}" stroke="var(--surface)" stroke-width="1.2"/>`;
+    }).join('');
+
+    const hasDrops = pts.some((p) => p.turn.context_delta < 0);
+    const hasBusts = pts.some((p) => p.turn.cache_bust);
+    const budget = Number(r.request_budget_tokens) || 0;
+    let budgetLineHtml = '';
+    let budgetLegendHtml = '';
+    if (budget > 0 && budget <= yMax) {
+      const budgetY = plotBottom - (budget / yMax) * plotH;
+      budgetLineHtml = `
+        <line x1="${padL}" y1="${budgetY.toFixed(1)}" x2="${plotRight}" y2="${budgetY.toFixed(1)}" stroke="#f28b82" stroke-width="1.2" stroke-dasharray="3,2" opacity="0.85"/>
+        <text x="${plotRight}" y="${(budgetY - 3).toFixed(1)}" text-anchor="end" fill="#f28b82" font-size="8.5" font-weight="500">${esc(t('curve_budget_line', { tok: fmtTok(budget) }))}</text>
+      `;
+      budgetLegendHtml = `
+        <span class="curve-legend-item">
+          <svg width="16" height="8" viewBox="0 0 16 8" style="flex:none;">
+            <line x1="0" y1="4" x2="16" y2="4" stroke="#f28b82" stroke-width="1.6" stroke-dasharray="3,2"/>
+          </svg>
+          <span>${esc(t('curve_budget_leg', { tok: fmtTok(budget) }))}</span>
+        </span>
+      `;
+    } else if (budget > 0) {
+      budgetLegendHtml = `<span class="dim num">${esc(t('curve_budget_out', { tok: fmtTok(budget) }))}</span>`;
+    }
+
+    return `
+      <section>
+        <h2>
+          <span>${esc(t('sec_curve'))}</span>
+          <span class="hint num">${esc(t('curve_turns', { n: N }))}</span>
+        </h2>
+        <div class="curve-card">
+          <div class="curve-header">
+            <div class="curve-title">
+              <span class="curve-badge num">#${pStart.step} → #${pLatest.step}</span>
+            </div>
+            <div class="curve-info">
+              ${esc(t('curve_start'))}<strong>${fmtTok(pStart.prompt_tokens)}</strong> · ${esc(t('curve_latest'))}<strong>${fmtTok(pLatest.prompt_tokens)}</strong>
+              <span class="dim">(${netStr})</span>
+            </div>
+          </div>
+          <div class="curve-chart-wrap" id="curve-wrap">
+            <svg class="curve-svg" viewBox="0 0 ${svgW} ${svgH}" role="img" aria-label="${esc(t('curve_aria'))}">
+              <defs>
+                <linearGradient id="growth-area-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--c-agent)" stop-opacity="0.32"/>
+                  <stop offset="75%" stop-color="var(--c-agent)" stop-opacity="0.06"/>
+                  <stop offset="100%" stop-color="var(--c-agent)" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              ${gridLinesHtml}
+              ${budgetLineHtml}
+              ${axisBottomHtml}
+              ${xTicksHtml}
+              <text x="${padL}" y="11" fill="var(--dim)" font-size="9.5" font-weight="500">${esc(t('curve_axis_y'))}</text>
+              <text x="${plotRight}" y="146" text-anchor="end" fill="var(--dim)" font-size="9.5" font-weight="500">${esc(t('curve_axis_x'))}</text>
+              ${pathHtml}
+              ${dotsHtml}
+              <line id="curve-crosshair" x1="0" y1="${padT}" x2="0" y2="${plotBottom}" stroke="var(--dim)" stroke-width="1" stroke-dasharray="2,2" opacity="0" pointer-events="none"/>
+              <circle id="curve-hover-dot" cx="0" cy="0" r="4.5" fill="var(--c-agent)" stroke="#ffffff" stroke-width="1.5" opacity="0" pointer-events="none"/>
+              <rect id="curve-hit-area" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor:crosshair;"/>
+            </svg>
+          </div>
+          <div class="curve-tooltip" id="curve-tooltip-bar">
+            <div class="curve-tooltip-main num">
+              <span class="dim">${t('curve_peak_net', { peak: fmtTok(maxTok), net: netStr })}</span>
+            </div>
+          </div>
+          <div class="curve-legend">
+            <div class="curve-legend-items">
+              <span class="curve-legend-item">
+                <svg width="18" height="10" viewBox="0 0 18 10" style="flex:none;">
+                  <line x1="1" y1="5" x2="17" y2="5" stroke="var(--c-agent)" stroke-width="2.2" stroke-linecap="round"/>
+                  <circle cx="9" cy="5" r="2.8" fill="var(--c-agent)" stroke="var(--surface)" stroke-width="1"/>
+                </svg>
+                <span>${esc(t('leg_ctx'))}</span>
+              </span>
+              <span class="curve-legend-item">
+                <svg width="12" height="10" viewBox="0 0 12 10" style="flex:none;">
+                  <circle cx="6" cy="5" r="3.5" fill="var(--c-user)" stroke="var(--surface)" stroke-width="1.2"/>
+                </svg>
+                <span>${esc(t('leg_user'))}</span>
+              </span>
+              ${hasBusts ? `
+              <span class="curve-legend-item">
+                <svg width="12" height="10" viewBox="0 0 12 10" style="flex:none;">
+                  <circle cx="6" cy="5" r="3.6" fill="#ef4444" stroke="var(--surface)" stroke-width="1.2"/>
+                </svg>
+                <span>${esc(t('leg_bust'))}</span>
+              </span>` : ''}
+              ${hasDrops ? `
+              <span class="curve-legend-item">
+                <svg width="12" height="10" viewBox="0 0 12 10" style="flex:none;">
+                  <circle cx="6" cy="5" r="3.5" fill="#81c995" stroke="var(--surface)" stroke-width="1.2"/>
+                </svg>
+                <span>${esc(t('leg_drop'))}</span>
+              </span>` : ''}
+              ${budget > 0 && budget <= yMax ? budgetLegendHtml : ''}
+            </div>
+            ${budget > 0 && budget > yMax ? budgetLegendHtml : ''}
+          </div>
+        </div>
+      </section>`;
+  }
+
+  function setupGrowthCurve(r) {
+    const tel = r.telemetry;
+    if (!tel || !Array.isArray(tel.turns_curve) || !tel.turns_curve.length) return;
+    const curve = tel.turns_curve;
+    const N = curve.length;
+    const pStart = curve[0];
+    const pLatest = curve[N - 1];
+    const growth = (pLatest.prompt_tokens || 0) - (pStart.prompt_tokens || 0);
+    const netStr = `${growth >= 0 ? '+' : ''}${fmtTok(growth)}`;
+    const maxTok = Math.max(...curve.map((c) => c.prompt_tokens || 0), 100);
+    const { yMax } = calculateYScale(maxTok);
+
+    const padL = 46;
+    const padR = 14;
+    const padT = 18;
+    const padB = 26;
+    const plotW = 340 - padL - padR;
+    const plotH = 150 - padT - padB;
+    const plotBottom = padT + plotH;
+
+    const pts = curve.map((turn, i) => {
+      const x = N > 1 ? padL + (i / (N - 1)) * plotW : padL + plotW / 2;
+      const y = plotBottom - Math.min(plotH, Math.max(0, ((turn.prompt_tokens || 0) / yMax) * plotH));
+      return { x, y, turn, i };
+    });
+
+    const hitArea = document.getElementById('curve-hit-area');
+    const crosshair = document.getElementById('curve-crosshair');
+    const hoverDot = document.getElementById('curve-hover-dot');
+    const tooltipBar = document.getElementById('curve-tooltip-bar');
+    if (!hitArea || !crosshair || !hoverDot || !tooltipBar) return;
+
+    function findClosest(e) {
+      const rect = hitArea.getBoundingClientRect();
+      const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const targetSvgX = padL + relX * plotW;
+      let best = pts[0];
+      let bestDist = Math.abs(pts[0].x - targetSvgX);
+      for (let i = 1; i < pts.length; i++) {
+        const dist = Math.abs(pts[i].x - targetSvgX);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = pts[i];
+        }
+      }
+      return best;
+    }
+
+    hitArea.addEventListener('pointermove', (e) => {
+      const pt = findClosest(e);
+      crosshair.setAttribute('x1', pt.x.toFixed(1));
+      crosshair.setAttribute('x2', pt.x.toFixed(1));
+      crosshair.style.opacity = '0.75';
+
+      hoverDot.setAttribute('cx', pt.x.toFixed(1));
+      hoverDot.setAttribute('cy', pt.y.toFixed(1));
+      hoverDot.style.opacity = '1';
+      if (pt.turn.cache_bust) {
+        hoverDot.setAttribute('fill', '#ef4444');
+      } else if (pt.turn.user_prompt) {
+        hoverDot.setAttribute('fill', 'var(--c-user)');
+      } else if (pt.turn.context_delta < 0) {
+        hoverDot.setAttribute('fill', '#81c995');
+      } else {
+        hoverDot.setAttribute('fill', 'var(--c-agent)');
+      }
+
+      const delta = pt.turn.context_delta || 0;
+      const deltaStr = (delta >= 0 ? '+' : '') + fmtTok(delta);
+      const bustTag = pt.turn.cache_bust ? `<span class="turn-tag bust">${esc(t('tag_bust_long'))}</span>` : '';
+      const userTag = pt.turn.user_prompt ? `<span class="turn-tag user">${esc(t('tag_user'))}</span>` : '';
+      const toolTag = pt.turn.tool_count > 0 ? `<span class="turn-tag">${esc(t('tag_tools', { n: pt.turn.tool_count }))}</span>` : '';
+      const snippet = pt.turn.user_prompt
+        ? esc(pt.turn.user_prompt)
+        : (pt.turn.tool_summary ? esc(pt.turn.tool_summary) : (pt.turn.timestamp ? esc(pt.turn.timestamp) : ''));
+
+      tooltipBar.innerHTML = `
+        <div class="curve-tooltip-main num">
+          <strong>#${pt.turn.step}</strong>
+          <span>${fmtTok(pt.turn.prompt_tokens)} tok</span>
+          <span class="dim">(${deltaStr})</span>
+          <span class="dim">${esc(t('tip_hit', { pct: pt.turn.cache_hit_pct }))}</span>
+          ${bustTag}
+          ${userTag}
+          ${toolTag}
+          ${snippet ? `<span class="curve-tooltip-preview dim">${snippet}</span>` : ''}
+        </div>
+      `;
+    });
+
+    hitArea.addEventListener('pointerleave', () => {
+      crosshair.style.opacity = '0';
+      hoverDot.style.opacity = '0';
+      tooltipBar.innerHTML = `
+        <div class="curve-tooltip-main num">
+          <span class="dim">${t('curve_peak_net', { peak: fmtTok(maxTok), net: netStr })}</span>
+        </div>
+      `;
+    });
+
+    hitArea.addEventListener('click', (e) => {
+      const pt = findClosest(e);
+      selectedTurnStep = pt.turn.step;
+      const allTurns = (tel && Array.isArray(tel.recent_turns)) ? tel.recent_turns : [];
+      const isBeyondRecent = allTurns.findIndex((tr) => tr.step === pt.turn.step) >= 12;
+      if (isBeyondRecent && !showAllTurns) {
+        showAllTurns = true;
+        render(r, swarmData);
+      }
+      setTimeout(() => {
+        const det = document.querySelector(`details.turn-item[data-step="${pt.turn.step}"]`);
+        if (det) {
+          det.open = true;
+          det.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          det.style.borderColor = 'var(--c-agent)';
+          setTimeout(() => { det.style.borderColor = ''; }, 1200);
+        }
+      }, 50);
+    });
+  }
+
+  function telemetrySection(r) {
+    const tel = r.telemetry;
+    if (!tel || !tel.latest) return '';
+    const cur = tel.latest;
+    const sum = tel.summary || {};
+    return `
+      <section>
+        <h2>${esc(t('sec_perf'))} <span class="hint">${esc(t('perf_hint', { step: cur.step, total: tel.total_calls }))}</span></h2>
+        <div class="group">
+          <div class="row"><span class="mark" style="background:#81c995"></span><span>${esc(t('perf_speed'))}</span><span class="tok num">${cur.output_tps} t/s</span><span class="p num">${sum.peak_output_tps || 0}</span></div>
+          <div class="row"><span class="mark" style="background:#4c8df6"></span><span>${esc(t('perf_ttft'))}</span><span class="tok num">${fmtSec(cur.ttft_ms)}</span><span class="p num">${fmtSec(sum.avg_ttft_ms)}</span></div>
+          <div class="row"><span class="mark" style="background:#a8c7fa"></span><span>${esc(t('perf_prefill'))}</span><span class="tok num">${fmtTok(cur.prefill_tps)}/s</span><span class="p num">${fmtTok(sum.avg_prefill_tps || 0)}/s</span></div>
+          <div class="row"><span class="mark" style="background:#f9ab00"></span><span>${esc(t('perf_cache'))}</span><span class="tok num">${cur.cache_hit_pct}%</span><span class="p num">${sum.overall_cache_hit_pct || 0}%</span></div>
+          <div class="row"><span class="mark sq" style="background:#c58af9"></span><span>${esc(t('perf_turn_out'))}</span><span class="tok num">${fmtTok(cur.output_tokens)}</span><span class="p num">${fmtTok(cur.thinking_tokens)}</span></div>
+          <div class="row"><span class="mark sq" style="background:#9aa0a6"></span><span>${esc(t('perf_sess_out'))}</span><span class="tok num">${fmtTok(sum.sum_output_tokens || 0)}</span><span class="p num">${fmtTok(sum.sum_thinking_tokens || 0)}</span></div>
+        </div>
+      </section>`;
+  }
+
+  function renderTurnDetail(tr) {
+    const cachePct = Math.min(100, Math.max(0, Number(tr.cache_hit_pct) || 0));
+    const freshPct = Math.max(0, 100 - cachePct);
+    const outTotal = Math.max(1, Number(tr.output_tokens) || 1);
+    const thinkPct = Math.min(100, Math.max(0, ((Number(tr.thinking_tokens) || 0) / outTotal) * 100));
+    const respPct = Math.max(0, 100 - thinkPct);
+    const delta = Number(tr.context_delta) || 0;
+    const deltaStr = (delta >= 0 ? '+' : '') + fmtTok(delta);
+
+    const tools = Array.isArray(tr.tools) ? tr.tools : [];
+    const toolsHtml = tools.length
+      ? `<div class="td-box">
+          <div class="td-box-head">
+            <span>${esc(t('td_tool_calls', { n: tools.length }))}</span>
+            <span class="num">+${fmtTok(tr.tool_tokens || 0)} tok</span>
+          </div>
+          <div class="td-tools">
+            ${tools.map((tc) => `
+              <div class="td-tool-row" title="${esc(tc.summary)}">
+                <span class="td-tool-icon">${SVG_TOOL}</span>
+                <span class="td-tool-name">${esc(tc.name)}</span>
+                <span class="td-tool-sum">${esc(tc.summary || '')}</span>
+                <span class="td-tool-tok">+${fmtTok(tc.tokens || 0)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>`
+      : '';
+
+    const userHtml = tr.user_prompt
+      ? `<div class="td-box">
+          <div class="td-box-head">
+            <span style="color:var(--c-user)">${esc(t('td_user_input'))}</span>
+            <span class="num">${fmtTok(tr.user_tokens || 0)} tok</span>
+          </div>
+          <div class="td-snippet">${esc(tr.user_prompt)}</div>
+        </div>`
+      : '';
+
+    const thinkHtml = tr.thinking_preview
+      ? `<div class="td-box">
+          <div class="td-box-head">
+            <span>${esc(t('td_thinking'))}</span>
+            <span class="num">${fmtTok(tr.thinking_tokens || 0)} tok</span>
+          </div>
+          <div class="td-snippet dim">${esc(tr.thinking_preview)}</div>
+        </div>`
+      : '';
+
+    const respHtml = tr.response_preview
+      ? `<div class="td-box">
+          <div class="td-box-head">
+            <span>${esc(t('td_response'))}</span>
+            <span class="num">${fmtTok(tr.response_tokens || 0)} tok</span>
+          </div>
+          <div class="td-snippet">${esc(tr.response_preview)}</div>
+        </div>`
+      : '';
+
+    const bustBanner = tr.cache_bust
+      ? `<div class="td-box" style="border-color:color-mix(in srgb,#ef4444 45%,transparent);background:color-mix(in srgb,#ef4444 8%,transparent);color:#f87171;font-size:11px;font-weight:500;">
+          ${esc(t('td_bust_banner', { tok: fmtTok(tr.input_tokens || 0) }))}
+        </div>`
+      : '';
+
+    return `
+      <div class="turn-detail">
+        <div class="td-meta">
+          <span class="num">${esc(t('td_meta_turn', { step: tr.step }))}${tr.traj_step !== undefined ? esc(t('td_meta_traj', { traj: tr.traj_step })) : ''}${tr.timestamp ? ` · ${esc(tr.timestamp)}` : ''}</span>
+          <span class="num">${esc(t('td_meta_delta', { d: deltaStr }))}${tr.trace_id ? ` · ${esc(tr.trace_id.slice(0, 12))}` : ''}</span>
+        </div>
+        ${bustBanner}
+        <div class="td-cards">
+          <div class="td-card">
+            <div class="td-card-title">${esc(t('td_ctx_title'))}</div>
+            <div class="td-bar">
+              <div style="width:${cachePct.toFixed(1)}%;background:#f9ab00"></div>
+              <div style="width:${freshPct.toFixed(1)}%;background:#4c8df6"></div>
+            </div>
+            <div class="td-kv"><span class="k">${esc(t('td_prompt_total'))}</span><span class="v">${(tr.prompt_tokens || 0).toLocaleString()}</span></div>
+            <div class="td-kv"><span class="k">${esc(t('td_cache_read'))}</span><span class="v">${(tr.cache_read_tokens || 0).toLocaleString()} (${cachePct}%)</span></div>
+            <div class="td-kv"><span class="k">${esc(t('td_fresh_input'))}</span><span class="v">${(tr.input_tokens || 0).toLocaleString()}</span></div>
+            <div class="td-kv"><span class="k">${esc(t('td_prefill_speed'))}</span><span class="v">${fmtTok(tr.prefill_tps || 0)}/s</span></div>
+          </div>
+          <div class="td-card">
+            <div class="td-card-title">${esc(t('td_out_title'))}</div>
+            <div class="td-bar">
+              <div style="width:${thinkPct.toFixed(1)}%;background:#c58af9"></div>
+              <div style="width:${respPct.toFixed(1)}%;background:#81c995"></div>
+            </div>
+            <div class="td-kv"><span class="k">${esc(t('td_out_total'))}</span><span class="v">${(tr.output_tokens || 0).toLocaleString()}</span></div>
+            <div class="td-kv"><span class="k">${esc(t('td_think_resp'))}</span><span class="v">${(tr.thinking_tokens || 0).toLocaleString()} / ${(tr.response_tokens || 0).toLocaleString()}</span></div>
+            <div class="td-kv"><span class="k">${esc(t('td_ttft_stream'))}</span><span class="v">${fmtSec(tr.ttft_ms)} / ${fmtSec(tr.stream_ms)}</span></div>
+            <div class="td-kv"><span class="k">${esc(t('td_total_speed'))}</span><span class="v">${fmtSec(tr.total_ms)} · ${tr.output_tps} t/s</span></div>
+          </div>
+        </div>
+        ${userHtml}
+        ${toolsHtml}
+        ${thinkHtml}
+        ${respHtml}
+      </div>`;
+  }
+
+  function turnsSection(r) {
+    const tel = r.telemetry;
+    if (!tel || !Array.isArray(tel.recent_turns) || !tel.recent_turns.length) return '';
+    const allTurns = tel.recent_turns;
+    const visibleTurns = showAllTurns ? allTurns : allTurns.slice(0, 12);
+    const toggleBtn = allTurns.length > 12
+      ? `<button type="button" id="toggle-turns-btn" style="padding:1px 6px;font-size:10.5px;">${esc(showAllTurns ? t('turns_collapse') : t('turns_expand', { n: allTurns.length }))}</button>`
+      : '';
+
+    const turnsHtml = visibleTurns.map((tr) => {
+      const isOpen = selectedTurnStep === tr.step;
+      const toolCount = Array.isArray(tr.tools) ? tr.tools.length : 0;
+      return `
+        <details class="turn-item" name="turn-inspector" data-step="${tr.step}" ${isOpen ? 'open' : ''}>
+          <summary class="turn-summary" title="${esc(t('turn_title', { step: tr.step }))}">
+            <span class="turn-chev">${SVG_CHEVRON}</span>
+            <span class="dim num">#${tr.step}</span>
+            <span class="turn-main num">
+              <span>${fmtTok(tr.prompt_tokens)} <span class="dim">(${tr.cache_hit_pct}%)</span></span>
+              ${tr.cache_bust ? `<span class="turn-tag bust">${esc(t('tag_bust_short'))}</span>` : ''}
+              ${tr.user_prompt ? `<span class="turn-tag user">${esc(t('tag_user'))}</span>` : ''}
+              ${toolCount > 0 ? `<span class="turn-tag">${esc(t('tag_tools', { n: toolCount }))}</span>` : ''}
+            </span>
+            <span class="num" style="text-align:right">${fmtTok(tr.output_tokens)}<span class="dim">/${fmtTok(tr.thinking_tokens)}</span></span>
+            <span class="num dim" style="text-align:right">${fmtSec(tr.ttft_ms)}</span>
+            <span class="num" style="text-align:right">${tr.output_tps} t/s</span>
+          </summary>
+          ${renderTurnDetail(tr)}
+        </details>`;
+    }).join('');
+
+    return `
+      <section>
+        <h2>
+          <span>${esc(t('sec_turns'))}</span>
+          ${toggleBtn}
+        </h2>
+        <div class="turn-list">${turnsHtml}</div>
+      </section>`;
+  }
+
+  function modeTabsBar(r, sr) {
+    const sm = (sr && sr.has_cluster ? sr.summary : null) || (r && (r.swarm_meta || r.cluster)) || {};
+    const hasCluster = Boolean((sr && sr.has_cluster && !sr.is_historical_fallback) || (r && (r.swarm_meta?.has_cluster || r.cluster?.has_cluster)));
+    const memberCount = Number(sm.member_count) || 0;
+    const workingCount = Number(sm.working_count) || 0;
+    const countBadge = hasCluster && memberCount > 0 ? `<span class="tab-count num">${memberCount}</span>` : '';
+    const liveDot = hasCluster && workingCount > 0 ? `<span class="tab-dot" title="${esc(t('tab_working_tip'))}"></span>` : '';
+    const uiLang = resolveUiLang();
+    return `
+      <div class="nav-row">
+        <div class="mode-tabs" role="tablist">
+          <button type="button" class="mode-tab ${activeMode === 'single' ? 'active' : ''}" data-switch-mode="single">
+            ${SVG_SINGLE}<span>${esc(t('tab_single'))}</span>
+          </button>
+          <button type="button" class="mode-tab ${activeMode === 'swarm' ? 'active' : ''}" data-switch-mode="swarm">
+            ${SVG_SWARM}<span>${esc(t('tab_swarm'))}</span>${countBadge}${liveDot}
+          </button>
+        </div>
+        <div class="nav-tools">
+          <button type="button" class="lang-pill" id="lang-toggle-btn" title="${esc(t('btn_lang_tip'))}">
+            <span class="${uiLang === 'zh' ? 'on' : ''}">中</span><span class="sep">/</span><span class="${uiLang === 'en' ? 'on' : ''}">EN</span>
+          </button>
+          <button type="button" class="icon-btn" id="manual-refresh-btn" title="${esc(t('btn_refresh_tip'))}" aria-label="${esc(t('btn_refresh_tip'))}">
+            ${SVG_REFRESH}
+          </button>
+        </div>
+      </div>`;
+  }
+
+  function singleCacheStrip(r) {
+    const lastTurnAt = r.last_turn_at || r.telemetry?.last_turn_at || '';
+    const st = evalTtlState(lastTurnAt, 'single');
+    const bustCount = Number(r.cache_bust_count ?? r.telemetry?.cache_bust_count ?? 0) || 0;
+    const bustTokens = Number(r.cache_bust_tokens ?? r.telemetry?.cache_bust_tokens ?? 0) || 0;
+    const bustCls = bustCount >= 5 ? 'severe' : (bustCount > 0 ? 'has-bust' : '');
+    const bustText = bustCount > 0
+      ? t('bust_has', { n: bustCount, tok: fmtTok(bustTokens) })
+      : t('bust_zero');
+
+    const sm = r.swarm_meta || r.cluster || {};
+    const jumpKey = sm.cluster_type === 'subagents' ? 'cluster_jump_sub' : 'cluster_jump_swarm';
+    const clusterJump = sm && sm.has_cluster
+      ? `<button type="button" class="mini-pill info" id="quick-jump-swarm" style="height:22px;border-radius:999px;padding:0 8px;">${esc(t(jumpKey, { act: sm.active_count, tot: sm.member_count }))}</button>`
+      : '';
+
+    let quotaHtml = '';
+    if (r.quota && r.quota.remaining_pct != null) {
+      const qPct = Math.round(Number(r.quota.remaining_pct));
+      let qEta = '';
+      if (r.quota.reset_time) {
+        const diff = Math.max(0, Math.floor((Date.parse(r.quota.reset_time) - Date.now()) / 1000));
+        if (diff > 0) {
+          const d = Math.floor(diff / 86400);
+          const h = Math.floor((diff % 86400) / 3600);
+          const m = Math.floor((diff % 3600) / 60);
+          qEta = d >= 1
+            ? t('quota_dh', { d, h })
+            : (h >= 1 ? t('quota_hm', { h, m: String(m).padStart(2, '0') }) : t('quota_m', { m: Math.max(1, m) }));
+        } else {
+          qEta = t('quota_soon');
+        }
+      }
+      const qCls = qPct <= 10 ? 'severe' : (qPct <= 25 ? 'has-bust' : '');
+      const etaPart = qEta ? ' · ' + qEta : '';
+      quotaHtml = `<span class="bust-pill ${qCls} num" title="${esc(t('quota_tip'))}">${esc(t('quota_pill', { pct: qPct, eta: etaPart }))}</span>`;
+    }
+
+    return `
+      <div class="cache-strip">
+        <span class="ttl-pill ${st.cls}" data-ttl-ts="${esc(lastTurnAt)}" data-ttl-mode="single" title="${esc(st.title)}">
+          <span class="ttl-dot"></span>
+          <span class="ttl-txt">${esc(st.label)}</span>
+        </span>
+        <span class="bust-pill ${bustCls} num" title="${esc(t('bust_tip'))}">
+          ${esc(bustText)}
+        </span>
+        ${quotaHtml}
+        ${clusterJump}
+      </div>`;
+  }
+
+  function roleShortLabel(m) {
+    if (m.kind === 'coordinator') return t('role_coord');
+    if (m.kind === 'monitor') return t('role_mon');
+    if (m.kind === 'subagent') return m.role ? t('role_sub_with', { r: m.role }) : t('role_sub');
+    return m.workspace_mode === 'share'
+      ? t('role_wk_share')
+      : (m.workspace_mode === 'branch' ? t('role_wk_branch') : t('role_wk'));
+  }
+
+  function stateLabel(st) {
+    if (st === 'working') return t('st_working');
+    if (st === 'waiting') return t('st_waiting');
+    if (st === 'killed') return t('st_killed');
+    return t('st_idle');
+  }
+
+  function renderWorkerCard(m, auditEnabled) {
+    const isKilled = m.state === 'killed';
+    const ttlInfo = isKilled ? null : evalTtlState(m.last_turn_at || '', 'worker');
+    const ttlHtml = isKilled
+      ? `<span class="ttl-pill killed"><span class="ttl-txt">${esc(t('st_killed'))}</span></span>`
+      : `<span class="ttl-pill ${ttlInfo.cls}" data-ttl-ts="${esc(m.last_turn_at || '')}" data-ttl-mode="worker" title="${esc(ttlInfo.title)}"><span class="ttl-dot"></span><span class="ttl-txt">${esc(ttlInfo.label)}</span></span>`;
+
+    const audit = m.model_audit || { status: 'ok', label: '' };
+    const auditCls = audit.status === 'violation' ? 'bad' : (audit.status === 'warn' ? 'warn' : 'ok');
+    const showAuditBadge = Boolean(auditEnabled && audit.label);
+    const auditBadgeHtml = showAuditBadge ? `<span class="mini-pill ${auditCls}">${esc(audit.label)}</span>` : '';
+
+    const ctx = Number(m.current_context) || 0;
+    const budget = Number(m.request_budget) || Number(m.limit_tokens) || 512000;
+    const ctxPct = Math.min(100, Math.max(0, (ctx / budget) * 100));
+    const ctxColor = ctxPct >= 78 ? '#ef4444' : (ctxPct >= 58 ? '#f59e0b' : 'var(--c-agent)');
+    const heavyWarn = ctxPct >= 78 && !isKilled
+      ? `<span class="mini-pill bad" title="${esc(t('wk_high_ctx_tip'))}">${esc(t('wk_high_ctx'))}</span>`
+      : '';
+
+    const bustCnt = Number(m.cache_bust_count) || 0;
+    const bustTok = Number(m.cache_bust_tokens) || 0;
+    const bustSpan = bustCnt > 0
+      ? `<span style="color:${bustCnt >= 5 ? '#f87171' : '#f59e0b'};font-weight:600;">${esc(t('wk_bust_has', { n: bustCnt, tok: fmtTok(bustTok) }))}</span>`
+      : `<span>${esc(t('wk_bust_zero'))}</span>`;
+
+    return `
+      <div class="worker-card ${m.is_viewed ? 'viewed' : ''} ${isKilled ? 'killed' : ''}">
+        <div class="wk-top">
+          <div class="wk-id">
+            <span class="st-dot ${esc(m.state)}" title="${esc(stateLabel(m.state))}"></span>
+            <span class="wk-name" title="${esc(m.name)} (${esc(m.conversation_id)})">${esc(m.name)}</span>
+            <span class="mini-pill">${esc(roleShortLabel(m))}</span>
+            ${m.is_viewed ? `<span class="mini-pill info">${esc(t('wk_viewed'))}</span>` : ''}
+            ${heavyWarn}
+          </div>
+          ${ttlHtml}
+        </div>
+        <div class="wk-mid">
+          <div class="wk-model" title="${esc(t('wk_model_tip', { m: m.model || '', b: m.base_model || '' }))}">
+            <span class="wk-model-name">${esc(m.model || 'Unknown')}</span>
+            ${auditBadgeHtml}
+          </div>
+          <span class="num dim" style="font-size:10.5px;">${esc(stateLabel(m.state))}</span>
+        </div>
+        <div class="ctx-bar-row" title="${esc(t('wk_ctx_tip', { ctx: ctx.toLocaleString(), bud: budget.toLocaleString() }))}">
+          <div class="ctx-bar-track">
+            <div class="ctx-bar-fill" style="width:${ctxPct.toFixed(1)}%;background:${ctxColor};"></div>
+          </div>
+          <span class="num" style="font-size:11px;color:${ctx >= 400000 ? '#f87171' : 'var(--fg)'};">${fmtTok(ctx)} <span class="dim">/ ${fmtTok(budget)}</span></span>
+        </div>
+        <div class="wk-foot">
+          <span>${t('wk_foot_stats', { t: m.turns || 0, hit: (m.hit_rate ?? 0).toFixed(1), out: fmtTok(m.total_output || 0) })}</span>
+          ${bustSpan}
+        </div>
+      </div>`;
+  }
+
+  function renderSwarmRadarBody(sr) {
+    if (!sr || !sr.has_cluster) {
+      return `
+        <div class="empty" style="margin:32px 8px;">
+          <div style="font-weight:600;color:var(--fg);margin-bottom:6px;">${esc(t('swarm_empty_title'))}</div>
+          <div style="font-size:12px;margin-bottom:14px;">${esc(t('swarm_empty_desc'))}</div>
+          <button type="button" id="load-latest-swarm-btn">${esc(t('swarm_load_latest'))}</button>
+        </div>`;
+    }
+
+    const s = sr.summary || {};
+    const members = Array.isArray(sr.members) ? sr.members : [];
+    const auditEnabled = sr.audit_enabled === true;
+    const preSteps = s.pre_dispatch_steps;
+    const preSec = s.pre_dispatch_seconds;
+    const hasPre = preSteps !== null && preSteps !== undefined;
+    const preBadge = hasPre
+      ? `<span class="mini-pill ${s.slow_dispatch ? 'bad' : 'ok'}" title="${esc(t('swarm_pre_tip'))}">${esc(t('swarm_pre_overhead', { steps: preSteps, dur: fmtOverheadDur(preSec), slow: s.slow_dispatch ? t('swarm_pre_slow') : '' }))}</span>`
+      : `<span class="mini-pill">${esc(t('swarm_direct_dispatch'))}</span>`;
+
+    const modelAlertCnt = auditEnabled ? ((Number(s.violation_count) || 0) + (Number(s.warn_count) || 0)) : 0;
+    const modelAlertBadge = !auditEnabled
+      ? ''
+      : (s.violation_count > 0
+          ? `<span class="mini-pill bad">${esc(t('swarm_audit_violation', { n: s.violation_count }))}</span>`
+          : (s.warn_count > 0
+              ? `<span class="mini-pill warn">${esc(t('swarm_audit_warn', { n: s.warn_count }))}</span>`
+              : `<span class="mini-pill ok">${esc(t('swarm_audit_ok'))}</span>`));
+
+    const clusterKindLabel = sr.cluster_type === 'subagents' ? t('swarm_kind_sub') : t('swarm_kind_swarm');
+
+    return `
+      <div class="swarm-head">
+        <div class="swarm-title-wrap">
+          <div class="swarm-title">${esc(sr.title || 'Swarm Cluster')}</div>
+          <div class="swarm-sub">
+            <span class="mini-pill info">${esc(clusterKindLabel)}</span>
+            ${sr.is_worker_view ? `<span class="mini-pill warn" title="${esc(t('swarm_worker_view_tip'))}">${esc(t('swarm_worker_view'))}</span>` : ''}
+            ${sr.is_historical_fallback ? `<span class="mini-pill warn">${esc(t('swarm_hist_badge'))}</span>` : ''}
+            ${modelAlertBadge}
+            <span class="num">${esc(t('swarm_scan_ms', { ms: sr.scan_ms ?? '--' }))}</span>
+          </div>
+        </div>
+        ${sr.is_historical_fallback ? `<button type="button" id="exit-history-swarm-btn">${esc(t('swarm_exit_history'))}</button>` : ''}
+      </div>
+
+      <div class="swarm-kpi-grid">
+        <div class="kpi-card ${s.slow_dispatch ? 'alert' : ''}">
+          <div class="kpi-label"><span>${esc(t('kpi_turns'))}</span></div>
+          <div class="kpi-val">${(s.total_turns || 0).toLocaleString()} <span class="dim" style="font-size:11.5px;font-weight:400;">${esc(t('kpi_turns_unit'))}</span></div>
+          <div class="kpi-foot">${preBadge}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label"><span>${esc(t('kpi_hit'))}</span></div>
+          <div class="kpi-val" style="color:${(s.overall_hit_rate || 0) >= 85 ? '#10b981' : ((s.overall_hit_rate || 0) >= 65 ? 'var(--fg)' : '#f59e0b')}">${(s.overall_hit_rate ?? 0).toFixed(1)}%</div>
+          <div class="kpi-foot"><span>${esc(t('kpi_hit_foot', { cr: fmtTok(s.total_cache_read || 0), inp: fmtTok(s.total_input || 0) }))}</span></div>
+        </div>
+        <div class="kpi-card ${(s.cache_bust_count || 0) > 0 ? 'alert' : ''}">
+          <div class="kpi-label"><span>${esc(t('kpi_bust'))}</span></div>
+          <div class="kpi-val" style="color:${(s.cache_bust_count || 0) >= 5 ? '#f87171' : ((s.cache_bust_count || 0) > 0 ? '#f59e0b' : 'var(--fg)')}">${esc(t('kpi_bust_val', { n: s.cache_bust_count || 0 }))}</div>
+          <div class="kpi-foot"><span>${t('kpi_bust_foot', { tok: fmtTok(s.cache_bust_tokens || 0) })}</span></div>
+        </div>
+        <div class="kpi-card ${modelAlertCnt > 0 ? 'alert' : ''}">
+          <div class="kpi-label"><span>${esc(t('kpi_members'))}</span></div>
+          <div class="kpi-val">${s.active_count || 0} <span class="dim" style="font-size:13px;font-weight:400;">/ ${s.member_count || 0}</span></div>
+          <div class="kpi-foot"><span>${esc(t('kpi_members_foot', { w: s.working_count || 0, wt: s.waiting_count || 0, k: s.killed_count || 0 }))}</span></div>
+        </div>
+      </div>
+
+      <div class="ttl-legend-bar" title="${esc(t('ttl_bar_tip'))}">
+        <span class="ttl-leg-item"><span class="ttl-leg-dot" style="background:#10b981"></span><span>${esc(t('ttl_leg_warm'))}</span></span>
+        <span class="ttl-leg-item"><span class="ttl-leg-dot" style="background:#f59e0b"></span><span>${esc(t('ttl_leg_risk'))}</span></span>
+        <span class="ttl-leg-item"><span class="ttl-leg-dot" style="background:#f87171"></span><span>${esc(t('ttl_leg_cold'))}</span></span>
+      </div>
+
+      <section style="margin-top:8px;padding-top:8px;">
+        <h2>
+          <span>${esc(t(auditEnabled ? 'sec_workers_audit' : 'sec_workers_plain'))}</span>
+          <span class="hint num">${esc(t('workers_hint', { n: members.length, out: fmtTok(s.total_output || 0) }))}</span>
+        </h2>
+        <div class="worker-list">
+          ${members.map((m) => renderWorkerCard(m, auditEnabled)).join('')}
+        </div>
+      </section>`;
+  }
+
+  function bindModeTabEvents() {
+    document.querySelectorAll('[data-switch-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const next = btn.getAttribute('data-switch-mode');
+        if (next === 'single') historicalSwarmMode = false;
+        setMode(next, true);
+      });
+    });
+    const langBtn = document.getElementById('lang-toggle-btn');
+    if (langBtn) {
+      langBtn.addEventListener('click', () => { void toggleUiLanguage(); });
+    }
+    const refreshBtn = document.getElementById('manual-refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        lastJson = '';
+        void refresh(true);
+      });
+    }
+    const jumpBtn = document.getElementById('quick-jump-swarm');
+    if (jumpBtn) {
+      jumpBtn.addEventListener('click', () => setMode('swarm', true));
+    }
+    const histBtn = document.getElementById('load-latest-swarm-btn');
+    if (histBtn) {
+      histBtn.addEventListener('click', () => {
+        historicalSwarmMode = true;
+        lastJson = '';
+        void refresh(true);
+      });
+    }
+    const exitHistBtn = document.getElementById('exit-history-swarm-btn');
+    if (exitHistBtn) {
+      exitHistBtn.addEventListener('click', () => {
+        historicalSwarmMode = false;
+        lastJson = '';
+        void refresh(true);
+      });
+    }
+  }
+
+  function formatErrorMessage(r) {
+    if (!r || r.error === 'no-conversation') return t('err_no_conv');
+    if (r.error === 'no-database') return t('err_no_db');
+    return t('err_read_fail', { msg: r.message || r.error });
+  }
+
+  function render(r, sr) {
+    syncDocumentLangMeta();
+    const scrollY = window.scrollY;
+    const updatedTime = new Date((sr && activeMode === 'swarm' ? sr.updatedAt : r?.updatedAt) || Date.now())
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const updatedFooter = esc(t('footer_updated', { t: updatedTime }));
+
+    if (activeMode === 'swarm') {
+      main.innerHTML = `
+        ${modeTabsBar(r, sr)}
+        ${renderSwarmRadarBody(sr)}
+        <footer><span>${esc(t('footer_swarm'))}</span><span>${updatedFooter}</span></footer>`;
+      bindModeTabEvents();
+      tickAllTtlCapsules();
+      if (scrollY > 0) window.scrollTo(0, scrollY);
+      return;
+    }
+
+    if (!r || r.error) {
+      main.innerHTML = `${modeTabsBar(null, sr)}<p class="empty">${esc(formatErrorMessage(r))}</p>`;
+      bindModeTabEvents();
+      return;
+    }
+
+    const nativeLimit = Number(r.limit_tokens) || 0;
+    const limit = effectiveLimit(r);
+    const used = Number(r.used_tokens) || 0;
+    const effPct = limit > 0 ? Math.min(100, (used / limit) * 100) : (r.used_pct || 0);
+    const physNote = nativeLimit > limit
+      ? `<span class="dim" style="font-size:11.5px;margin-left:4px;" title="${esc(t('phys_tip'))}">${esc(t('phys_note', { lim: fmtTok(nativeLimit) }))}</span>`
+      : '';
+    const cid = r.conversation_id || initialConversationId;
+    main.innerHTML = `
+      ${modeTabsBar(r, sr)}
+      <div class="top">
+        <div class="model"><span class="live on" title="${esc(t('live_tip'))}"></span>${esc(r.model)}</div>
+        <button id="copy" title="${esc(t('copy_tip'))}">${esc(t('copy_report'))}</button>
+      </div>
+      <div class="usage">
+        <span class="big num">${fmtTok(r.used_tokens)}</span>
+        <span class="of">/ ${limit ? fmtTok(limit) : esc(t('unknown'))} tokens${physNote}</span>
+        ${limit ? `<span class="pct num">${effPct.toFixed(1)}%</span>` : ''}
+      </div>
+      ${singleCacheStrip(r)}
+      ${grid(r)}
+      ${categories(r)}
+      ${growthCurveSection(r)}
+      ${telemetrySection(r)}
+      ${turnsSection(r)}
+      ${checkpoints(r)}
+      ${files(t('files_knowledge'), '/rules', r.knowledge_files, cid)}
+      ${files(t('files_artifact'), '/artifact', r.artifact_files, cid)}
+      ${files(t('files_skill'), '/skill', r.skill_files, cid)}
+      ${files(t('files_system'), t('files_autoload'), r.system_files, cid)}
+      <footer><span>${esc(t('footer_single'))}</span><span>${updatedFooter}</span></footer>`;
+
+    bindModeTabEvents();
+    document.getElementById('copy').addEventListener('click', copy);
+    setupGrowthCurve(r);
+    tickAllTtlCapsules();
+
+    const toggleBtn = document.getElementById('toggle-turns-btn');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        showAllTurns = !showAllTurns;
+        render(r, sr);
+      });
+    }
+
+    document.querySelectorAll('details.turn-item').forEach((det) => {
+      det.addEventListener('toggle', () => {
+        const step = Number(det.dataset.step);
+        if (det.open) {
+          selectedTurnStep = step;
+        } else if (selectedTurnStep === step) {
+          selectedTurnStep = null;
+        }
+      });
+    });
+
+    if (scrollY > 0) {
+      window.scrollTo(0, scrollY);
+    }
+  }
+
+  function showErrorState(dataObj) {
+    report = null;
+    lastReportPayload = dataObj;
+    lastJson = '';
+    syncDocumentLangMeta();
+    main.innerHTML = `${modeTabsBar(null, swarmData)}<p class="empty">${esc(formatErrorMessage(dataObj))}</p>`;
+    bindModeTabEvents();
+  }
+
+  async function copy(event) {
+    if (!report) return;
+    try {
+      await navigator.clipboard.writeText(report.text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = report.text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    const btn = event.currentTarget;
+    btn.textContent = t('copied');
+    setTimeout(() => { btn.textContent = t('copy_report'); }, 1500);
+  }
+
+  async function refresh(force = false) {
+    if (!force && document.hidden && (report !== null || swarmData !== null)) return;
+    try {
+      const preUiLang = resolveUiLang();
+      const qs = new URLSearchParams({ conversationId: initialConversationId, workspace, lang: preUiLang });
+      const res = await doFetch(`/api/report?${qs}`);
+      const data = await res.json();
+
+      if (data && data.lang && Date.now() >= userOverrodeLangUntil) {
+        configLang = normalizeLangSetting(data.lang);
+      }
+
+      const uiLang = resolveUiLang();
+      const hasClusterHint = Boolean(data && !data.error && (data.swarm_meta?.has_cluster || data.cluster?.has_cluster));
+
+      if (
+        !userPinnedMode &&
+        hasClusterHint &&
+        (data.swarm_meta || data.cluster)?.cluster_type === 'swarm' &&
+        !(data.swarm_meta || data.cluster)?.is_worker_view &&
+        Number((data.swarm_meta || data.cluster)?.working_count) > 0
+      ) {
+        activeMode = 'swarm';
+      }
+
+      let nextSwarm = null;
+      if (activeMode === 'swarm' || hasClusterHint) {
+        const sqs = new URLSearchParams({
+          conversationId: (!data.error && data.conversation_id) ? data.conversation_id : initialConversationId,
+          latestFallback: (activeMode === 'swarm' && historicalSwarmMode) ? '1' : '0',
+          lang: uiLang
+        });
+        const sRes = await doFetch(`/api/swarm?${sqs}`);
+        nextSwarm = await sRes.json();
+        if (nextSwarm && nextSwarm.config_lang && Date.now() >= userOverrodeLangUntil) {
+          configLang = normalizeLangSetting(nextSwarm.config_lang);
+        }
+        if (nextSwarm && nextSwarm.has_cluster && !nextSwarm.is_historical_fallback) {
+          historicalSwarmMode = false;
+        }
+      }
+
+      lastReportPayload = data;
+      if (activeMode === 'single' && data.error) {
+        swarmData = nextSwarm;
+        return showErrorState(data);
+      }
+
+      const cleanRep = data ? { ...data, updatedAt: '' } : null;
+      const cleanSwarm = nextSwarm ? { ...nextSwarm, updatedAt: '', scan_ms: 0 } : null;
+      const sig = JSON.stringify({ lang: resolveUiLang(), mode: activeMode, rep: cleanRep, sw: cleanSwarm });
+      if (!force && sig === lastJson) return;
+      lastJson = sig;
+      report = data && !data.error ? data : null;
+      swarmData = nextSwarm;
+      render(data, nextSwarm);
+    } catch {
+      const dot = document.querySelector('.live');
+      if (dot) dot.classList.remove('on');
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => refresh(false));
+
+  function start() {
+    syncDocumentLangMeta();
+    main.innerHTML = `<p class="empty">${esc(t('loading'))}</p>`;
+    try {
+      window.parent?.postMessage({ type: 'agy-context-query-host-lang' }, '*');
+    } catch {}
+    doFetch('/api/config')
+      .then((r) => r.json())
+      .then((res) => {
+        if (res && res.lang && Date.now() >= userOverrodeLangUntil) {
+          configLang = normalizeLangSetting(res.lang);
+          syncDocumentLangMeta();
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        refresh(true);
+      });
+    setInterval(() => refresh(false), POLL_MS);
+    setInterval(tickAllTtlCapsules, 1000);
+    if (window.sidecar && window.sidecar.getWorkspaceUris) {
+      window.sidecar.getWorkspaceUris().then((uris) => {
+        if (Array.isArray(uris) && (uris[0] || '') !== workspace) {
+          workspace = uris[0] || '';
+          lastJson = '';
+          refresh(true);
+        }
+      }).catch(() => {});
+      if (window.sidecar.onWorkspaceChange) {
+        window.sidecar.onWorkspaceChange((next) => {
+          if (Array.isArray(next) && (next[0] || '') !== workspace) {
+            workspace = next[0] || '';
+            lastJson = '';
+            refresh(true);
+          }
+        });
+      }
+    }
+  }
+  start();
+})();
+</script>
+</body>
+</html>

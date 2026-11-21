@@ -1,0 +1,41 @@
+MIT License
+
+Copyright (c) 2026 jiangnanquan & Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+Third-Party Attribution & Upstream Acknowledgements
+-------------------------------------------------------------------------------
+
+1. Simplified Chinese Localization Engine & Dictionaries
+   - Derived from and enhanced upon `Silas-02/antigravity-desktop-cn`
+     (https://github.com/Silas-02/antigravity-desktop-cn), originally forked
+     from `qqxpee/antigravity2-cn` (https://github.com/qqxpee/antigravity2-cn).
+   - Sincere thanks to Silas-02 and qqxpee for their foundational localization
+     architecture and dictionary curation.
+
+2. Built-in Context Pro Telemetry & Swarm Radar (`plugins/desktop-context`)
+   - Built upon the foundational architecture created by Dimitrios Ioannidis in
+     `dimitr-io/antigravity-desktop-context`
+     (https://github.com/dimitr-io/antigravity-desktop-context, MIT License),
+     and inspired by / adapted from `pigzzz104/antigravity-context-pro`
+     (https://github.com/pigzzz104/antigravity-context-pro).
+   - Copyright for original upstream portions remains with their respective
+     authors under the terms of the MIT License.
