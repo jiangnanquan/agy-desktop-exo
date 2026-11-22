@@ -143,7 +143,13 @@ function generateJs(uiLang = UI_LANG) {
             if (protocol === 'plugin:') return ENABLE_ZH_TRANSLATION;
             if (protocol === 'http:' || protocol === 'https:') {
                 const host = typeof loc.hostname === 'string' ? loc.hostname.toLowerCase() : '';
-                return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1' || host.endsWith('.localhost');
+                if (host !== '127.0.0.1' && host !== 'localhost' && host !== '[::1]' && host !== '::1' && !host.endsWith('.localhost')) {
+                    return false;
+                }
+                if (globalThis.top && globalThis.self && globalThis.top !== globalThis.self) {
+                    return false;
+                }
+                return true;
             }
             return false;
         } catch (e) {
@@ -4631,7 +4637,7 @@ function getDynamicProductUiTranslation(value, node = null) {
         return false;
     }
 
-    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|MCP servers, skills, slash commands|other coding agents|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|draft, and send emails in Gmail|Run your Gmail inbox|manage Gmail messages, drafts, labels|format spreadsheets|edit, and export presentations|upload, download, and share files|Preview & Quota Heavy\\) Run a swarm|several agents working in parallel|native-swarm worker whose brief says it is the monitor|native-swarm worker whose brief says it is the narrator|MCP Apps for Antigravity|results render as interactive UI|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|迁移到一个新的 Antigravity 插件中|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|在 Gmail 中搜索、阅读、起草并发送电子邮件|管理您的 Gmail 收件箱|管理 Gmail 邮件、草稿、标签|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件|运行蜂群协作|指定为监控员的原生蜂群|指定为叙事者的原生蜂群|Antigravity 的 MCP 应用)/i;
+    const SKILL_PICKER_CONTAINER_REGEX = /(?:quick question without interrupting|align on a plan|team of agents to autonomously|recent successes or corrections|Boost multi-agent orchestrator|Antigravity Customization System|comprehensive guide, quick reference, and sitemap|render rich interactive HTML widgets|scheduled background automation|manage and create plugins|namespaced bundles of skills|MCP servers, skills, slash commands|other coding agents|manage Google Docs|draft, and edit docs|and write your Google Docs|schedule events, and RSVP|draft, and send emails in Gmail|Run your Gmail inbox|manage Gmail messages, drafts, labels|format spreadsheets|edit, and export presentations|upload, download, and share files|Preview & Quota Heavy\\) Run a swarm|several agents working in parallel|native-swarm worker whose brief says it is the monitor|native-swarm worker whose brief says it is the narrator|Swarm UI's Overview|groups of work and a screenshot timeline|MCP Apps for Antigravity|results render as interactive UI|不中断主会话|通过访谈与我对齐|智能体团队自主应对|反思最近的成功或改进|Boost 多智能体编排器|个性化定制系统的综合指南|全面指南、快速参考和网站地图|交互式 HTML 小组件|定时后台自动化|计划后台自动化|管理和创建插件|迁移到一个新的 Antigravity 插件中|管理 Google 文档|起草和编辑文档|安排活动并回复邀请|在 Gmail 中搜索、阅读、起草并发送电子邮件|管理您的 Gmail 收件箱|管理 Gmail 邮件、草稿、标签|编写和格式化电子表格|导出演示文稿|上传、下载和共享文件|运行蜂群协作|指定为监控员的原生蜂群|指定为叙事者的原生蜂群|蜂群界面概览|Antigravity 的 MCP 应用)/i;
 
     function translateSwarmBoardEmptyBody(element) {
         if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
@@ -7447,10 +7453,13 @@ ${SIGNATURE_END}`;
     const officeRendererSnippet = [
         "(() => {",
         "  try {",
-        "    const proto = (typeof globalThis !== 'undefined' && globalThis.location && typeof globalThis.location.protocol === 'string')",
-        "      ? globalThis.location.protocol.toLowerCase()",
-        "      : '';",
-        "    if (proto === 'plugin:') return;",
+        "    const loc = typeof globalThis !== 'undefined' ? globalThis.location : null;",
+        "    if (!loc) return;",
+        "    const proto = typeof loc.protocol === 'string' ? loc.protocol.toLowerCase() : '';",
+        "    const host = typeof loc.hostname === 'string' ? loc.hostname.toLowerCase() : '';",
+        "    if (proto !== 'http:' && proto !== 'https:') return;",
+        "    if (host !== '127.0.0.1' && host !== 'localhost' && host !== '[::1]' && host !== '::1' && !host.endsWith('.localhost')) return;",
+        "    if (globalThis.top && globalThis.self && globalThis.top !== globalThis.self) return;",
         "    const invokeFn = (typeof electron_1 !== 'undefined' && electron_1 && electron_1.ipcRenderer && typeof electron_1.ipcRenderer.invoke === 'function')",
         "      ? electron_1.ipcRenderer.invoke.bind(electron_1.ipcRenderer)",
         "      : null;",
@@ -11165,7 +11174,9 @@ function cleanIpcHandlersJsContent(content) {
     return removeMarkedBlocks(withoutOffice, LEGACY_IPC_MEME_START, LEGACY_IPC_MEME_END)
         .replace("electron_1.dialog.showErrorBox('无法打开文件夹', t.error);", "electron_1.dialog.showErrorBox('Cannot open folder', t.error);")
         .replace("message: '文件夹位于 Windows 文件系统中',", "message: 'Folder is on the Windows filesystem',")
-        .replace("title: '打开工作区',", "title: 'Open workspace',");
+        .replace("title: '打开工作区',", "title: 'Open workspace',")
+        .replace("title: '打开多个工作区',", "title: 'Open workspaces',")
+        .replace("title: '选择下载文件夹',", "title: 'Select Download Folder',");
 }
 
 function cleanMainJsContent(content) {
@@ -12549,7 +12560,9 @@ ${translationJs}
             ipcCleaned = ipcCleaned
                 .replace("electron_1.dialog.showErrorBox('Cannot open folder', t.error);", "electron_1.dialog.showErrorBox('无法打开文件夹', t.error);")
                 .replace("message: 'Folder is on the Windows filesystem',", "message: '文件夹位于 Windows 文件系统中',")
-                .replace("title: 'Open workspace',", "title: '打开工作区',");
+                .replace("title: 'Open workspace',", "title: '打开工作区',")
+                .replace("title: 'Open workspaces',", "title: '打开多个工作区',")
+                .replace("title: 'Select Download Folder',", "title: '选择下载文件夹',");
         }
 
         const regIpcMatch = ipcCleaned.match(/function\s+registerIpcHandlers\s*\([^)]*\)\s*\{/);
