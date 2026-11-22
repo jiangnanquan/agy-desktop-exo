@@ -1220,5 +1220,18 @@
   "Search tabs, files, extensions, artifacts, commands...": "搜索标签页、文件、扩展、交付件、命令...",
   "Within each group, models share a weekly limit and a 5-hour limit. Quota is consumed proportionally to the cost of the tokens. Thus, limits will last longer with shorter tasks or using more cost-effective models. The 5-hour limit smooths out aggregate demand to fairly distribute global capacity across all users, while your weekly limit is tied directly to your individual tier.": "同一组内的模型共享每周配额和 5 小时配额. 配额按 Token 成本比例消耗，因此任务越短或模型越经济，配额可使用越久. 5 小时配额用于平抑总体需求，从而在所有用户之间公平分配全局容量; 每周配额则与您的订阅级别直接相关.",
   "ONLY for the native-swarm worker whose brief says it is the narrator. It watches the board and keeps the facts behind the user's Overview (view.json) current. Coordinators and other workers: do not load this.": "仅限任务简报中指定为叙事者的原生蜂群工作节点使用. 它会持续关注消息板，并保持用户概览视图(view.json)背后的事实信息处于最新状态. 协调者及其他工作节点: 请勿加载此技能.",
-  "ONLY for the native-swarm worker whose brief says it is the narrator.": "仅限任务简报中指定为叙事者的原生蜂群工作节点使用."
+  "ONLY for the native-swarm worker whose brief says it is the narrator.": "仅限任务简报中指定为叙事者的原生蜂群工作节点使用.",
+  "Orchestrator (Neon)": "编排器 (Neon)",
+  "Neon that may offload routine steps to Hydrogen. Same Neon-level quality, fewer tokens used.": "以 Neon 为主，可能会将常规步骤交由 Hydrogen 处理. 质量与 Neon 相当，Token 消耗更少.",
+  "For most deep reasoning and complex problems": "适用于大多数深度推理与复杂问题",
+  "The original Gemini 4 model for advanced workflows": "面向高级工作流的经典 Gemini 4 模型",
+  "For speed and efficiency in execution tasks": "兼顾执行任务的速度与效率",
+  "Error Loading Models": "加载模型出错",
+  "No models available": "暂无可用模型",
+  "Offloads routine steps to a faster executor. Same quality, fewer tokens used.": "将常规步骤交由更快的执行器处理. 质量相同，Token 消耗更少.",
+  "Thinking effort": "思考深度",
+  "Controls how much time and quota the model spends reasoning before responding. Higher effort improves accuracy on hard problems, at the cost of slower responses and higher quota use.": "控制模型在响应前花费在推理上的时间与配额. 更高的深度可提升难题的准确率，但代价是响应更慢且配额消耗更高.",
+  "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline. Load it before you brief and add the first workers to a swarm.": "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线. 请在向蜂群下达任务简报并添加首批工作节点前加载此技能.",
+  "Inspect element to comment": "检查元素以发表评论",
+  "Exit inspect element mode (Esc)": "退出检查元素模式 (Esc)"
 }

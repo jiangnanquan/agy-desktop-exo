@@ -6,9 +6,9 @@
 >
 > **Supported UI Languages**: **Official English (`--lang en`, 100% original UI)** & **Simplified Chinese (`--lang zh`)**
 >
-> **Suite & Localization Version**: `v2.33.0` (Compatible with **Antigravity Desktop `v2.33.0`**)
+> **Suite & Localization Version**: `v2.34.0` (Compatible with **Antigravity Desktop `v2.34.0`**)
 >
-> **Last Updated**: `2026-11-21`
+> **Last Updated**: `2026-11-22`
 >
 > **Runtime Requirements**: Node.js `v18+` (zero external `npm` dependencies for core ASAR engine); `python3` when enabling `Context Pro`
 
