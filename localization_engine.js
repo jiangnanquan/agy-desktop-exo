@@ -2252,6 +2252,10 @@ function generateJs(uiLang = UI_LANG) {
             source: 'swarm_pane',
             display: "蜂群面板",
             descriptions: [
+                "ONLY for the coordinator of an active /swarm session. What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline; load it before you brief and add the first workers. Outside /swarm, do not load this.",
+                "ONLY for the coordinator of an active /swarm session.",
+                "仅限活跃 /swarm 会话的协调者使用. 协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线; 请在向蜂群下达任务简报并添加首批工作节点前加载此技能. 在 /swarm 之外，请勿加载此技能.",
+                "仅限活跃 /swarm 会话的协调者使用.",
                 "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline. Load it before you brief and add the first workers to a swarm.",
                 "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline.",
                 "协调者用于编写蜂群界面概览所需的内容，以便展示蜂群目标、工作分组与截图时间线. 请在向蜂群下达任务简报并添加首批工作节点前加载此技能.",
@@ -3035,6 +3039,31 @@ function getDynamicProductUiTranslation(value, node = null) {
                 return limitLabel + "，" + parts.join(" ") + "后" + actionLabel + suffixDot;
             }
             return limitLabel + "，" + rest + " 后" + actionLabel + suffixDot;
+        }
+
+        if (!node || !isContentBodyContainer(node)) {
+            match = normalized.match(/^(?:(.+?)\\s+)?Leaving\\s+on\\s+(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|Sept|October|Oct|November|Nov|December|Dec)\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,\\s*(\\d{4}))?(\\.?)$/i);
+            if (match && (!match[1] || match[1].length <= 240)) {
+                const leavingMonthMap = {
+                    january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3,
+                    april: 4, apr: 4, may: 5, june: 6, jun: 6, july: 7, jul: 7,
+                    august: 8, aug: 8, september: 9, sep: 9, sept: 9,
+                    october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12
+                };
+                const monthNum = leavingMonthMap[match[2].toLowerCase()];
+                const yearPart = match[4] ? match[4] + "年" : "";
+                const endDot = match[5] || "";
+                const leavingZh = "将于 " + yearPart + monthNum + "月" + match[3] + "日下线" + endDot;
+                if (!match[1]) return leavingZh;
+                const rawPrefix = norm(match[1]);
+                const noDotPrefix = rawPrefix.replace(/\\.$/, "");
+                let translatedPrefix = map.get(rawPrefix) || lowerMap.get(rawPrefix.toLowerCase());
+                if (!translatedPrefix && noDotPrefix !== rawPrefix) {
+                    const baseTrans = map.get(noDotPrefix) || lowerMap.get(noDotPrefix.toLowerCase());
+                    if (baseTrans) translatedPrefix = baseTrans + ".";
+                }
+                return (translatedPrefix || rawPrefix) + " " + leavingZh;
+            }
         }
 
         match = normalized.match(/^Back\\s+to\\s+(.+)$/i);
@@ -12052,11 +12081,50 @@ class AsarArchive {
     }
 }
 
+function compareSemver(v1, v2) {
+    if (!v1 || !v2) return 0;
+    const parse = (v) => String(v).split('-')[0].split('.').map(n => parseInt(n, 10) || 0);
+    const a = parse(v1);
+    const b = parse(v2);
+    const len = Math.max(a.length, b.length);
+    for (let i = 0; i < len; i++) {
+        const diff = (a[i] || 0) - (b[i] || 0);
+        if (diff !== 0) return diff > 0 ? 1 : -1;
+    }
+    return 0;
+}
+
+function readAsarMetadata(asarFilePath) {
+    if (!fs.existsSync(asarFilePath)) {
+        return { exists: false, valid: false, version: null, isLocalized: false };
+    }
+    try {
+        let version = null;
+        const pkgBuf = AsarArchive.readFile(asarFilePath, "package.json");
+        if (pkgBuf) {
+            try {
+                const pkg = JSON.parse(pkgBuf.toString('utf-8'));
+                if (pkg && typeof pkg.version === 'string' && pkg.version.trim()) {
+                    version = pkg.version.trim();
+                }
+            } catch (e) { /* ignore invalid package.json */ }
+        }
+        const preloadBuf = AsarArchive.readFile(asarFilePath, "dist/preload.js");
+        if (!preloadBuf) {
+            return { exists: true, valid: false, version, isLocalized: false };
+        }
+        const preloadContent = preloadBuf.toString('utf-8');
+        const isLocalized = preloadContent.includes(SIGNATURE_START) || preloadContent.includes(LEGACY_SIGNATURE_START);
+        return { exists: true, valid: true, version, isLocalized };
+    } catch (e) {
+        return { exists: true, valid: false, version: null, isLocalized: false };
+    }
+}
+
 function installLocalization(resourcesDir, options = {}) {
     const activeLang = normalizeUiLang(options.uiLang || UI_LANG);
     const skipSign = options.skipSign !== undefined ? Boolean(options.skipSign) : SKIP_SIGN_FLAG;
     const isEn = activeLang === 'en';
-
     const asarPath = path.join(resourcesDir, "app.asar");
     const bakPath = path.join(resourcesDir, "app.asar.bak");
 
@@ -12077,6 +12145,36 @@ function installLocalization(resourcesDir, options = {}) {
                 console.error(`[错误] 创建 app.asar.bak 备份失败: ${e.message}`);
             }
             return false;
+        }
+    } else if (fs.existsSync(asarPath)) {
+        const asarMeta = readAsarMetadata(asarPath);
+        const bakMeta = readAsarMetadata(bakPath);
+        const versionUpgraded = Boolean(
+            asarMeta.valid && bakMeta.valid &&
+            asarMeta.version && bakMeta.version &&
+            compareSemver(asarMeta.version, bakMeta.version) > 0
+        );
+        const shouldRefreshBackup =
+            (asarMeta.valid && !asarMeta.isLocalized) ||
+            versionUpgraded;
+
+        if (shouldRefreshBackup) {
+            if (asarMeta.version && bakMeta.version && asarMeta.version !== bakMeta.version) {
+                console.log(`[备份] 检测到客户端已更新 (${bakMeta.version} -> ${asarMeta.version})，正在刷新 app.asar.bak...`);
+            } else {
+                console.log(`[备份] 检测到当前 app.asar 为未汉化的官方原始包，正在刷新 app.asar.bak...`);
+            }
+            try {
+                fs.copyFileSync(asarPath, bakPath);
+                console.log(`[备份] 备份更新成功！`);
+            } catch (e) {
+                if (e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS') {
+                    reportWritePermissionError(resourcesDir, e, '更新备份到');
+                } else {
+                    console.error(`[错误] 更新 app.asar.bak 备份失败: ${e.message}`);
+                }
+                return false;
+            }
         }
     }
 
@@ -12652,6 +12750,31 @@ function restoreLocalization(resourcesDir, options = {}) {
     if (!fs.existsSync(bakPath)) {
         console.log("[!] 未找到备份文件 app.asar.bak，可能尚未安装过汉化或备份被删除。");
         return false;
+    }
+
+    if (fs.existsSync(asarPath)) {
+        const asarMeta = readAsarMetadata(asarPath);
+        const bakMeta = readAsarMetadata(bakPath);
+        if (asarMeta.valid && !asarMeta.isLocalized) {
+            const verTip = asarMeta.version ? ` (${asarMeta.version})` : '';
+            console.log(`[提示] 当前 app.asar 已经是未汉化的官方版本${verTip}，无需覆盖恢复，正在清理旧备份 app.asar.bak...`);
+            try {
+                fs.unlinkSync(bakPath);
+                console.log("[√] 旧备份已清理，当前客户端保持官方原版！");
+                return true;
+            } catch (e) {
+                if (e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS') {
+                    reportWritePermissionError(resourcesDir, e, '清理备份', 'uninstall.sh');
+                } else {
+                    console.error(`[错误] 清理旧备份失败: ${e.message}`);
+                }
+                return false;
+            }
+        }
+        if (asarMeta.valid && bakMeta.valid && asarMeta.version && bakMeta.version && compareSemver(asarMeta.version, bakMeta.version) > 0) {
+            console.error(`[错误] 检测到当前 app.asar (${asarMeta.version}) 高于旧备份 app.asar.bak (${bakMeta.version})，为防止客户端被降级，已中止还原。请重新运行官方安装包覆盖修复。`);
+            return false;
+        }
     }
 
     console.log("[还原] 正在用官方备份文件恢复...");
