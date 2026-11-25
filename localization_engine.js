@@ -3003,6 +3003,59 @@ function getDynamicProductUiTranslation(value, node = null) {
         match = normalized.match(/^Hi\\s+(.+?),\\s+what can we get done today\\?$/i);
         if (match) return "嗨 " + match[1] + "，今天我们可以完成些什么？";
 
+        // 首页问候语（Hub 随机轮换问候语与追问句，问候语查前缀表、追问走白名单 + 词典两级翻译）
+        if (!node || !isContentBodyContainer(node)) {
+            const greetingPrefixMap = {
+                "welcome back": "欢迎回来",
+                "good to see you": "很高兴见到您",
+                "nice to see you": "很高兴见到您",
+                "good morning": "早上好",
+                "good afternoon": "下午好",
+                "good evening": "晚上好",
+                "hey": "嗨",
+                "hi": "嗨",
+                "hello": "您好"
+            };
+            const greetingTailMap = {
+                "what's next?": "接下来做什么？",
+                "what should we build today?": "今天我们该构建些什么？",
+                "what should we build?": "我们该构建些什么？",
+                "what can we get done today?": "今天我们可以完成些什么？",
+                "what are we building today?": "今天我们在构建什么？",
+                "what are we working on today?": "今天我们做些什么？",
+                "what would you like to build today?": "今天您想构建些什么？",
+                "what would you like to do?": "您想做些什么？",
+                "where should we pick up?": "我们从哪里继续？",
+                "where do you want to start?": "您想从哪里开始？",
+                "what's on the agenda today?": "今天有什么安排？"
+            };
+            const greetingPrefixZh = (raw) => greetingPrefixMap[String(raw).toLowerCase().replace(/\\s+/g, " ")] || raw;
+            const greetingTailZh = (raw) => {
+                const key = String(raw).trim().toLowerCase();
+                if (greetingTailMap[key]) return greetingTailMap[key];
+                const direct = map.get(String(raw).trim()) || lowerMap.get(String(raw).trim().toLowerCase());
+                return direct || String(raw).trim();
+            };
+
+            match = normalized.match(/^(Welcome\\s+back|Good\\s+to\\s+see\\s+you|Nice\\s+to\\s+see\\s+you|Good\\s+morning|Good\\s+afternoon|Good\\s+evening|Hey|Hi|Hello)[,]\\s*([A-Z][^.?!,]{0,40})[.!]\\s*(.+)$/i);
+            if (match && (/^[A-Z]/.test(match[2].trim()) || /^there$/i.test(match[2].trim()))) return greetingPrefixZh(match[1]) + "，" + match[2].trim() + "。" + greetingTailZh(match[3]);
+
+            match = normalized.match(/^(Welcome\\s+back|Good\\s+to\\s+see\\s+you|Nice\\s+to\\s+see\\s+you|Good\\s+morning|Good\\s+afternoon|Good\\s+evening|Hey|Hi|Hello)\\s+([A-Z][^.?!,]{0,40}),\\s*(.+)$/i);
+            if (match && (/^[A-Z]/.test(match[2].trim()) || /^there$/i.test(match[2].trim()))) return greetingPrefixZh(match[1]) + " " + match[2].trim() + "，" + greetingTailZh(match[3]);
+
+            const bareGreetingTail = normalized.toLowerCase().replace(/[.!]$/, "");
+            if (greetingTailMap[bareGreetingTail]) return greetingTailMap[bareGreetingTail];
+
+            match = normalized.match(/^(Welcome\\s+back|Good\\s+to\\s+see\\s+you|Nice\\s+to\\s+see\\s+you|Good\\s+morning|Good\\s+afternoon|Good\\s+evening|Hey|Hi|Hello)[,]?\\s*(.+)$/i);
+            if (match) {
+                const tailKey = match[2].trim().toLowerCase();
+                if (greetingTailMap[tailKey]) return greetingPrefixZh(match[1]) + "，" + greetingTailMap[tailKey];
+            }
+
+            match = normalized.match(/^(Welcome\\s+back|Good\\s+to\\s+see\\s+you|Nice\\s+to\\s+see\\s+you|Good\\s+morning|Good\\s+afternoon|Good\\s+evening|Hey|Hi|Hello)[,\\s]+([A-Z][^.?!,]{0,40})\\.?$/i);
+            if (match && (/^[A-Z]/.test(match[2].trim()) || /^there$/i.test(match[2].trim()))) return greetingPrefixZh(match[1]) + "，" + match[2].trim() + "。";
+        }
+
         match = normalized.match(/^Your\\s+Plan:\\s*(.+)$/i);
         if (match && match[1].length <= 80) return "您的计划: " + match[1];
 
