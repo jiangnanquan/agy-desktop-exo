@@ -6,7 +6,7 @@
 >
 > **Supported UI Languages**: **Official English (`--lang en`, 100% original UI)** & **Simplified Chinese (`--lang zh`)**
 >
-> **Suite & Localization Version**: `v2.35.0.1` (Compatible with **Antigravity Desktop `v2.35.0`**)
+> **Suite & Localization Version**: `v2.35.1` (Compatible with **Antigravity Desktop `v2.35.1`**)
 >
 > **Last Updated**: `2026-11-24`
 >
